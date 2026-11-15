@@ -16,15 +16,15 @@ Outputs
   models/<task>_dl_comparison.png        accuracy / F1 / speed chart
   results/<task>_dl_comparison.md        table for the report
 """
-import argparse
-import json
-import shutil
+import argparse 
+import json 
+import shutil 
 from pathlib import Path
 
 import train_model as tm
 
 
-def plot(rows, task, out_png):
+def plot(rows, task, out_png): 
     import matplotlib
 
     matplotlib.use("Agg")

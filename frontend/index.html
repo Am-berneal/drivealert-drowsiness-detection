@@ -195,6 +195,8 @@ section.block{padding:42px 0;border-top:1px solid var(--line)}
 /* ================= alarm ================= */
 .alarm{position:fixed;inset:0;z-index:100;display:none;place-items:center;background:rgba(80,0,0,.35);box-shadow:inset 0 0 0 10px var(--red);animation:flash .8s infinite}
 .alarm.show{display:grid}
+.alarm-sign{font-size:clamp(64px,12vw,120px);line-height:1;margin-bottom:6px}
+.alarm-risk{display:inline-block;background:var(--red);color:#fff;font-weight:700;border-radius:999px;padding:3px 12px;margin-left:8px;font-size:12px;letter-spacing:.08em}
 @keyframes flash{50%{box-shadow:inset 0 0 0 10px rgba(239,68,68,.25)}}
 .alarm-box{text-align:center;background:rgba(11,15,20,.94);border:2px solid var(--red);border-radius:16px;padding:30px 44px;margin:16px}
 .alarm-box h2{font-size:clamp(40px,8vw,72px);color:var(--red);margin:0 0 6px;letter-spacing:.04em}
@@ -413,9 +415,11 @@ tbody tr td{transition:background .2s}
 .state-strip b{display:block;font-family:var(--mono);font-size:17px;font-weight:500;margin-top:4px}
 .state-strip small{font-size:11px;color:var(--muted)}
 .ov.night{bottom:46px;left:12px;color:#C4B5FD;border-color:#7C3AED;display:none}
-.early-banner{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:90;background:rgba(245,158,11,.14);border:1px solid var(--amber);color:#FCD34D;
-  padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;display:none;backdrop-filter:blur(6px)}
-.early-banner.show{display:block;animation:toastIn .4s var(--spring)}
+.early-banner{position:absolute;bottom:52px;left:16px;right:16px;z-index:6;text-align:center;
+  background:rgba(40,28,6,.82);border:1px solid var(--amber);color:#FCD34D;padding:9px 16px;border-radius:10px;font-weight:600;font-size:13.5px;
+  display:none;backdrop-filter:blur(6px)}
+.early-banner.show{display:block;animation:bannerIn .3s ease-out}
+@keyframes bannerIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .alarm.l3{background:rgba(120,0,0,.55);animation:flash .3s infinite}
 .alarm.distracted .alarm-box{border-color:#E879F9} .alarm.distracted .alarm-box h2{color:#E879F9}
 .alarm-level{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:#FCA5A5;margin-bottom:6px}
@@ -778,6 +782,8 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <span class="ov bl" id="feedFace">FACE: —</span>
             <span class="ov sim" id="simTag">● SIMULATED DATA</span>
             <span class="ov night" id="nightTag">🌙 NIGHT MODE · ENHANCED</span>
+            <div id="devBoxes" style="position:absolute;inset:0;pointer-events:none"></div>
+            <div class="early-banner" id="earlyBanner"></div>
           </div>
           <div class="card calib-card">
             <div class="ico-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg></div>
@@ -800,6 +806,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <div class="card"><span class="label">Eyes</span><b id="dEyes">—</b><small id="dEyesSub">sunglasses check</small></div>
             <div class="card"><span class="label">Vehicle speed</span><b id="dSpeed">—</b><small id="dSpeedSub">from GPS</small></div>
             <div class="card"><span class="label">Phone use</span><b id="dPhone">—</b><small id="dPhoneSub">EfficientDet / YOLO</small></div>
+            <div class="card"><span class="label">Hands &amp; gaze</span><b id="dHands">—</b><small id="dHandsSub">hand on face · looking around</small></div>
             <div class="card"><span class="label">Night fallback</span><b id="dNight">Standby</b><small id="dNightSub">starts if the camera can't see</small></div>
             <div class="card"><span class="label">Sequence model</span><b id="dTemporal">—</b><small id="dTemporalSub">LSTM / GRU on 3 s</small></div>
           </div>
@@ -912,6 +919,10 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <option value="rising_fatigue">Rising fatigue</option>
             <option value="distracted">Distracted / looking away</option>
             <option value="phone_use">Phone use</option>
+            <option value="face_touch">Hand on face / rubbing eyes</option>
+            <option value="eating">Eating / drinking</option>
+            <option value="smoking">Smoking</option>
+            <option value="alcohol">Alcohol</option>
             <option value="too_dark">Too dark – camera blind</option>
             <option value="checkin_missed">Missed night check-in</option>
             <option value="swerving">Swerving</option>
@@ -1077,7 +1088,9 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
         <div class="setting"><label for="mar_threshold">Yawn threshold (MAR)</label><output id="o_mar_threshold"></output>
           <input type="range" id="mar_threshold" min="0.40" max="0.80" step="0.01"><span class="hint">How wide the mouth must open to count as a yawn.</span></div>
         <div class="setting"><label for="eye_closed_seconds">Seconds eyes closed before alarm</label><output id="o_eye_closed_seconds"></output>
-          <input type="range" id="eye_closed_seconds" min="0.5" max="3" step="0.1"></div>
+          <input type="range" id="eye_closed_seconds" min="0.3" max="3" step="0.1"><span class="hint">0.5 s = instant. A normal blink lasts 0.1–0.4 s, so do not go lower.</span></div>
+        <div class="setting"><label for="head_down_seconds">Seconds head dropped before alarm</label><output id="o_head_down_seconds"></output>
+          <input type="range" id="head_down_seconds" min="0.3" max="3" step="0.1"><span class="hint">How long the chin must stay down (nodding off) before WAKE UP.</span></div>
         <div class="setting"><label for="head_tilt_degrees">Head tilt (degrees)</label><output id="o_head_tilt_degrees"></output>
           <input type="range" id="head_tilt_degrees" min="10" max="30" step="1"></div>
         <div class="setting"><label for="alarm_score">Alarm fatigue score</label><output id="o_alarm_score"></output>
@@ -1096,9 +1109,19 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <option value="ear">EAR only (no ML)</option>
           </select></div>
         <div class="toggle"><div><b>Sequence model (LSTM / GRU)</b><div class="muted" style="font-size:12px">Blend the temporal model's P(drowsy) over the last 3 s into the fatigue score (needs train_temporal.py on real videos)</div></div><input type="checkbox" id="use_temporal"></div>
-        <div class="toggle"><div><b>Phone-use detection</b><div class="muted" style="font-size:12px">Object detector (EfficientDet-Lite0, or YOLOv8n if installed) looks for a phone near the face</div></div><input type="checkbox" id="phone_detection"></div>
-        <div class="form-row"><label for="phone_seconds">Phone alarm after<span class="hint">seconds a phone is seen near the face</span></label>
-          <select id="phone_seconds"><option value="1">1 s</option><option value="2">2 s</option><option value="3">3 s</option><option value="5">5 s</option></select></div>
+        <div class="toggle"><div><b>Phone &amp; device detection</b><div class="muted" style="font-size:12px">Object detector (YOLOv8n if installed, else EfficientDet-Lite2) finds a phone anywhere in view, or a laptop/tablet held near the face. Boxes are drawn on the live video</div></div><input type="checkbox" id="phone_detection"></div>
+        <div class="form-row"><label for="phone_seconds">Device alarm after<span class="hint">how long a device must be seen before the alarm</span></label>
+          <select id="phone_seconds"><option value="0">Immediately</option><option value="0.5">0.5 s</option><option value="1">1 s</option><option value="2">2 s</option><option value="3">3 s</option></select></div>
+        <div class="toggle"><div><b>Hand-on-face detection</b><div class="muted" style="font-size:12px">MediaPipe Hands: a hand on the face or rubbing the eyes (a sign of tiredness) raises an alarm</div></div><input type="checkbox" id="hand_detection"></div>
+        <div class="form-row"><label for="touch_seconds">Hand alarm after<span class="hint">how long a hand stays on the face</span></label>
+          <select id="touch_seconds"><option value="0">Immediately</option><option value="0.5">0.5 s</option><option value="1">1 s</option><option value="2">2 s</option></select></div>
+        <div class="toggle"><div><b>Eating &amp; drinking detection</b><div class="muted" style="font-size:12px">Food, a cup or a bottle at the mouth (object detector), or a hand at a chewing mouth (MediaPipe Hands + mouth movement)</div></div><input type="checkbox" id="eat_detection"></div>
+        <div class="form-row"><label for="eat_seconds">Eating alarm after<span class="hint">a quick sip is fine – longer eating/drinking raises the alarm</span></label>
+          <select id="eat_seconds"><option value="0">Immediately</option><option value="1">1 s</option><option value="1.5">1.5 s</option><option value="3">3 s</option><option value="5">5 s</option></select></div>
+        <div class="form-row"><label for="glance_alarm_count">Looking-around alarm<span class="hint">glances left/right/up within 10 s</span></label>
+          <select id="glance_alarm_count"><option value="3">3 glances</option><option value="4">4 glances</option><option value="5">5 glances</option><option value="8">8 glances</option></select></div>
+        <div class="actions" style="margin:8px 0 4px"><button class="btn" id="instantPreset" title="Shortest safe delays for a live demo">⚡ Instant alerts (demo)</button>
+          <button class="btn" id="normalPreset">↺ Normal delays</button></div>
         <div class="form-row"><label for="time_on_task_min">Time-on-task<span class="hint">Raise fatigue after this much continuous driving</span></label>
           <select id="time_on_task_min"><option value="0">Off</option><option value="1">After 1 min (demo)</option><option value="60">After 60 min</option><option value="90">After 90 min</option><option value="120">After 2 hours</option></select></div>
         <div class="form-row"><label for="speed_gate_kmh">Speed gating<span class="hint">No alarms below this GPS speed (parked). 0 = off – keep off for laptop demos</span></label>
@@ -1195,7 +1218,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
           <thead><tr><th>Model</th><th>Type</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC-AUC</th><th>5-fold CV</th><th>ms / image</th><th>Size</th></tr></thead>
           <tbody id="clBody"><tr><td colspan="10" class="empty">No classical results yet. Run <span class="mono">python train_classical.py --task both</span> (or the Kaggle notebook cell) and refresh.</td></tr></tbody>
         </table></div>
-        <div class="grid g2" id="clPlots" style="margin-top:14px"></div>
+        <div class="grid g2" id="clPlots" style="margin-top:14px;align-items:start"></div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -1371,6 +1394,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
 </div>
 
 <div class="alarm" id="alarm"><div class="alarm-box">
+  <div class="alarm-sign" id="alarmSign" aria-hidden="true">😴</div>
   <div class="alarm-level" id="alarmLevel">LEVEL 2 · ALARM</div>
   <h2 id="alarmTitle">WAKE UP!</h2><p id="alarmReason">Eyes closed too long</p>
   <div class="alarm-actions">
@@ -1389,7 +1413,6 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
     <button class="btn danger" id="crashHelp">Send help now</button>
   </div>
 </div></div>
-<div class="early-banner" id="earlyBanner">⚠ Early signs of fatigue – consider taking a break soon</div>
 
 <div class="modal" id="checkinModal"><div class="modal-box" style="border-color:#818CF8;text-align:center">
   <span class="eyebrow" style="justify-content:center;color:#818CF8">🌑 Night check-in · camera can't see you</span>
@@ -1415,16 +1438,16 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
    ========================================================== */
 const API = location.protocol.startsWith('http') ? location.origin : 'http://localhost:8000';
 const WS_URL = API.replace(/^http/, 'ws') + '/ws/detect';
-const SEND_FPS = 10, PAGE_SIZE = 8;
+const SEND_FPS = 15, PAGE_SIZE = 8;
 
 const $ = id => document.getElementById(id);
 const STATUS_LABEL = {alert:'ALERT / ATTENTIVE', warning:'WARNING / FATIGUED', drowsy:'DROWSY / CRITICAL', distracted:'DISTRACTED / EYES OFF ROAD', calibrating:'CALIBRATING', no_face:'NO FACE', too_dark:'TOO DARK / CAMERA BLIND', idle:'IDLE', paused:'PAUSED'};
 const STATUS_SHORT = {alert:'ALERT', warning:'WARNING', drowsy:'DROWSY', distracted:'DISTRACTED', calibrating:'CALIBRATING', no_face:'NO FACE', too_dark:'TOO DARK', idle:'IDLE', paused:'PAUSED'};
 const STATUS_COLOR = {alert:'#22C55E', warning:'#F59E0B', drowsy:'#EF4444', distracted:'#E879F9', calibrating:'#3B82F6', no_face:'#6B7280', too_dark:'#818CF8', idle:'#6B7280', paused:'#6B7280'};
 const REASON = {eyes_closed:'Eyes closed', head_down:'Head down / nod', distracted:'Distracted / looking away', high_fatigue:'High fatigue score',
-                yawn:'Yawn detected', rising_fatigue:'Rising fatigue', kss_report:'Sleepiness self-rating', crash:'Crash / hard impact', phone_use:'Phone use',
+                yawn:'Yawn detected', rising_fatigue:'Rising fatigue', kss_report:'Sleepiness self-rating', crash:'Crash / hard impact', phone_use:'Phone use', face_touch:'Hand on face / rubbing eyes', eating:'Eating / drinking', smoking:'Smoking (hand at the lips)', alcohol:'Alcohol (glass at the mouth)',
                 too_dark:'Too dark – camera blind', swerving:'Swerving (motion sensor)', checkin_missed:'Missed night check-in', checkin_ok:'Night check-in answered'};
-const CRIT_REASONS = ['eyes_closed','head_down','distracted','high_fatigue','crash','phone_use','checkin_missed'];
+const CRIT_REASONS = ['eyes_closed','head_down','distracted','high_fatigue','crash','phone_use','face_touch','eating','smoking','alcohol','checkin_missed'];
 const KSS = {1:'Extremely alert',2:'Very alert',3:'Alert',4:'Rather alert',5:'Neither alert nor sleepy',6:'Some signs of sleepiness',
              7:'Sleepy, no effort to stay awake',8:'Sleepy, some effort to stay awake',9:'Very sleepy, fighting sleep'};
 const KSS_COLOR = k => k>=8 ? '#EF4444' : k>=6 ? '#F59E0B' : k>=4 ? '#FDE047' : '#22C55E';
@@ -1523,6 +1546,7 @@ setInterval(() => $('clock').textContent = new Date().toLocaleTimeString([], {ho
 $('tHost').textContent = new URL(API).host;
 
 /* ---------- backend health + config ---------- */
+const EXPECTED_DETECTOR = '16-Nov v5';
 async function loadHealth(){
   try{
     const h = await (await fetch(API+'/api/health')).json();
@@ -1531,12 +1555,18 @@ async function loadHealth(){
       : h.eye_mode==='ear' ? 'MODEL: EAR ONLY' : n ? `MODEL: MobileNetV2 ×${n} ACTIVE` : 'MODEL: LANDMARKS ONLY';
     $('modelChip').className = 'chip ok';
     $('engineState').textContent = 'READY'; $('engineState').style.color = '';
+    $('engineState').title = 'Detector ' + (h.detector_version || 'old version – restart the server');
+    if(!h.detector_version || h.detector_version !== EXPECTED_DETECTOR){
+      $('engineState').textContent = 'OLD SERVER'; $('engineState').style.color = 'var(--red)';
+      toast('⚠ The server is running OLD code. Close every PowerShell window, then start the server again.');
+    }
+    console.log('[DriveAlert] detector', h.detector_version || 'OLD (restart the server)');
   }catch{
     $('modelText').textContent = 'BACKEND OFFLINE'; $('modelChip').className = 'chip bad';
     $('engineState').textContent = 'OFFLINE'; $('engineState').style.color = 'var(--red)';
   }
 }
-const SLIDERS = ['ear_threshold','mar_threshold','eye_closed_seconds','head_tilt_degrees','alarm_score','distraction_degrees','distraction_seconds'];
+const SLIDERS = ['ear_threshold','mar_threshold','eye_closed_seconds','head_down_seconds','head_tilt_degrees','alarm_score','distraction_degrees','distraction_seconds'];
 let appSettings = {};
 async function loadConfig(){
   try{
@@ -1554,8 +1584,13 @@ async function loadConfig(){
     $('night_eye_model').checked = config.night_eye_model !== false;
     $('dark_threshold').value = config.dark_threshold ?? 25;
     $('phone_detection').checked = !!config.phone_detection;
-    $('phone_seconds').value = String(Math.round(config.phone_seconds ?? 2));
-    if(!$('phone_seconds').value) $('phone_seconds').value = '2';
+    $('phone_seconds').value = String(config.phone_seconds ?? 0.5);
+    $('hand_detection').checked = config.hand_detection !== false;
+    $('eat_detection').checked = config.eat_detection !== false;
+    $('eat_seconds').value = String(config.eat_seconds ?? 1.5); if(!$('eat_seconds').value) $('eat_seconds').value = '1.5';
+    $('touch_seconds').value = String(config.touch_seconds ?? 1); if(!$('touch_seconds').value) $('touch_seconds').value = '1';
+    $('glance_alarm_count').value = String(config.glance_alarm_count ?? 5); if(!$('glance_alarm_count').value) $('glance_alarm_count').value = '5';
+    if(!$('phone_seconds').value) $('phone_seconds').value = '0.5';
     $('featEye').textContent = config.eye_closed_seconds + ' s closed';
     $('featMarTag').textContent = 'MAR · ' + Number(config.mar_threshold).toFixed(2) + ' TRIGGER';
     $('featTilt').textContent = config.head_tilt_degrees + '° for ' + config.head_down_seconds + ' s';
@@ -1628,6 +1663,8 @@ $('saveSettings').onclick = async () => {
     time_on_task_min: +$('time_on_task_min').value, speed_gate_kmh: Math.max(0, +$('speed_gate_kmh').value || 0),
     eye_mode: $('eye_mode').value, use_temporal: $('use_temporal').checked,
     phone_detection: $('phone_detection').checked, phone_seconds: +$('phone_seconds').value,
+    hand_detection: $('hand_detection').checked, touch_seconds: +$('touch_seconds').value,
+    eat_detection: $('eat_detection').checked, eat_seconds: +$('eat_seconds').value, glance_alarm_count: +$('glance_alarm_count').value,
     night_eye_model: $('night_eye_model').checked, dark_threshold: Math.min(60, Math.max(5, +$('dark_threshold').value || 25))};
   SLIDERS.forEach(k => body[k] = parseFloat($(k).value));
   const s = {driver_name: $('driverName').value.trim() || 'Driver', emergency_enabled: $('emergEnabled').checked,
@@ -1638,10 +1675,28 @@ $('saveSettings').onclick = async () => {
   try{
     const put = (url, b) => fetch(API+url, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
     const [a, b] = await Promise.all([put('/api/config', body), put('/api/settings', s)]);
-    if(!a.ok || !b.ok) throw 0;
+    for(const [r, name] of [[a,'detection settings'], [b,'app settings']]){
+      if(!r.ok){ let d=''; try{ d = JSON.stringify((await r.json()).detail).slice(0,160); }catch{}
+        toast(`Could not save ${name} (error ${r.status}) ${d}`); console.error('save failed', r.status, d); return; }
+    }
     await Promise.all([loadConfig(), loadAppSettings()]); loadHealth(); toast('Settings saved');
-  }catch{ toast('Could not save – is the backend running?'); }
+  }catch{ toast('Could not save – the server is not running. Start it with: python -m uvicorn app:app --port 8000'); }
 };
+/* alarm-delay presets: the delays exist so a normal blink or a glance at the mirror does not ring the alarm */
+async function applyPreset(eyes, away, phone, msg, deg=25, head=1){
+  // forget thresholds learned from "False alarm" presses – they make eye closure harder to detect
+  try{ await fetch(API+'/api/settings/profile', {method:'DELETE'}); }catch{}
+  $('eye_closed_seconds').value = eyes; $('o_eye_closed_seconds').textContent = eyes;
+  $('head_down_seconds').value = head; $('o_head_down_seconds').textContent = head;
+  $('distraction_seconds').value = away; $('o_distraction_seconds').textContent = away;
+  $('distraction_degrees').value = deg; $('o_distraction_degrees').textContent = deg;
+  $('phone_seconds').value = String(phone); $('phone_detection').checked = true;
+  $('eat_detection').checked = true; $('eat_seconds').value = phone===0 ? '1' : '1.5';
+  $('hand_detection').checked = true; $('touch_seconds').value = phone===0 ? '0.5' : '1'; $('glance_alarm_count').value = phone===0 ? '4' : '5';
+  $('saveSettings').click(); toast(msg);
+}
+$('instantPreset').onclick = () => applyPreset(0.5, 1, 0, '⚡ Instant alerts: eyes 0.5 s, head drop 0.6 s, looking away 1 s, device immediately – now press Recalibrate', 20, 0.6);
+$('normalPreset').onclick = () => applyPreset(1.0, 2, 0.5, '↺ Normal delays restored', 30, 1.0);
 $('testNotify').onclick = async () => {
   toast('Sending test message…');
   try{ const r = await (await fetch(API+'/api/notify/test', {method:'POST'})).json(); toast(r.ok ? '✓ Test message sent to Telegram' : '✗ '+r.message); }
@@ -1684,19 +1739,46 @@ const setSound = on => setSoundLevel(on ? 2 : 0);   // kept for older calls
 function ensureAudio(){ try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); audioCtx.resume?.(); }catch{} }
 
 /* ---------- spoken voice alerts (Web Speech API) ---------- */
-let lastSpoken = {};
-function speak(text, key=text, cooldown=8000, urgent=false){
-  if(!PREFS.voiceAlerts || !('speechSynthesis' in window)) return;
+let lastSpoken = {}, l1FatigueSince = null;
+/* sound first, then the screen: the alert appears this long after its sound starts */
+const SCREEN_DELAY_MS = 300;
+let alarmTimer = null, bannerTimer = null, alarmActive = false, bannerWanted = false;
+/* One steady voice, one message at a time:
+   - the same voice, speed and pitch for every message (no "different voices")
+   - a normal message is skipped while another one is being spoken (never queued on top)
+   - an urgent alarm message interrupts whatever is playing
+   - at least 3 s of silence between normal messages                                   */
+let voiceCache = {lang:null, voice:null}, lastAnyVoice = 0;
+function pickVoice(lang){
+  if(voiceCache.lang === lang && voiceCache.voice) return voiceCache.voice;
+  const all = speechSynthesis.getVoices();
+  const v = all.find(v => v.lang === lang && /google|microsoft/i.test(v.name)) || all.find(v => v.lang === lang)
+         || all.find(v => v.lang.startsWith(lang.slice(0,2))) || all.find(v => v.default) || all[0] || null;
+  if(v) voiceCache = {lang, voice: v};
+  return v;
+}
+if('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { voiceCache = {lang:null, voice:null}; };
+let voiceTopic = null, screenTopic = null;
+/* The voice always matches the screen: when what is shown changes (phone -> nothing, phone -> WAKE UP),
+   the old sentence is cut off at once and the new one starts straight away. */
+function voiceFollowScreen(topic){
+  if(topic === screenTopic) return;
+  screenTopic = topic;
+  if(voiceTopic && voiceTopic !== topic && 'speechSynthesis' in window){ speechSynthesis.cancel(); voiceTopic = null; }
+}
+function speak(text, key=text, cooldown=8000, urgent=false, topic=null){
+  if(!PREFS.voiceAlerts || !('speechSynthesis' in window) || !text) return;
   const now = Date.now();
   if(lastSpoken[key] && now-lastSpoken[key] < cooldown) return;
-  lastSpoken[key] = now;
-  if(urgent) speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  if(!urgent && (speechSynthesis.speaking || speechSynthesis.pending || now - lastAnyVoice < 3000)) return;
+  lastSpoken[key] = now; lastAnyVoice = now; voiceTopic = topic;
+  speechSynthesis.cancel();                       // never stack two messages
   const lang = PREFS.voiceLang || 'en-IN';
+  const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
-  const v = speechSynthesis.getVoices().find(v => v.lang === lang) || speechSynthesis.getVoices().find(v => v.lang.startsWith(lang.slice(0,2)));
-  if(v) u.voice = v;
-  u.rate = urgent ? 1.15 : 1; u.pitch = urgent ? 1.2 : 1; u.volume = 1;
+  const v = pickVoice(lang); if(v) u.voice = v;
+  u.rate = 1.1; u.pitch = 1; u.volume = 1;        // same voice settings for every message
+  u.onend = () => { if(voiceTopic === topic) voiceTopic = null; };
   speechSynthesis.speak(u);
 }
 /* Alarm and prompt phrases in English, Hindi and Punjabi.
@@ -1708,6 +1790,11 @@ const PHRASES = {
     head_down:   ['Head up! You are nodding off.', 'Danger! Your head dropped. Pull over now.'],
     distracted:  ['Eyes on the road, please.', 'Look at the road now!'],
     phone_use:   ['Put the phone down and watch the road.', 'Put the phone down now!'],
+    face_touch:  ['Hands on the wheel, please. Rubbing your eyes means you are getting tired.', 'Take your hand off your face and stop for a break!'],
+    eating:      ['Please eat or drink when the car is stopped. Eyes on the road.', 'Stop eating now and hold the wheel with both hands!'],
+    smoking:     ['No smoking while driving. Put it out and hold the wheel.', 'High risk! Stop smoking and hold the wheel with both hands!'],
+    alcohol:     ['Alcohol detected. Do not drink and drive. Stop the car safely.', 'High risk! Never drink and drive. Stop the car now!'],
+    drinking:    'Please drink when the car is stopped.', eating_now: 'Eating while driving. Please eat at your next stop.',
     high_fatigue:['You are very tired. Please take a break soon.', 'Fatigue is critical. Stop at the next safe place.'],
     early: 'You are showing early signs of fatigue.', look: 'Please look at the road.',
     test: 'DriveAlert voice alerts are on.', start: 'Monitoring started. Look straight ahead for three seconds to calibrate.',
@@ -1721,6 +1808,11 @@ const PHRASES = {
     head_down:   ['सिर ऊपर कीजिए! आपको नींद आ रही है।', 'खतरा! आपका सिर झुक गया। अभी गाड़ी रोकिए।'],
     distracted:  ['कृपया सड़क पर ध्यान दीजिए।', 'अभी सड़क की तरफ देखिए!'],
     phone_use:   ['फ़ोन रख दीजिए और सड़क पर ध्यान दीजिए।', 'अभी फ़ोन रखिए!'],
+    face_touch:  ['हाथ स्टीयरिंग पर रखिए। आँखें मलना थकान का संकेत है।', 'चेहरे से हाथ हटाइए और ब्रेक लीजिए!'],
+    eating:      ['कृपया गाड़ी रोककर खाइए या पीजिए। सड़क पर ध्यान दीजिए।', 'अभी खाना बंद कीजिए और दोनों हाथ स्टीयरिंग पर रखिए!'],
+    smoking:     ['गाड़ी चलाते समय धूम्रपान न करें। दोनों हाथ स्टीयरिंग पर रखिए।', 'खतरा! अभी धूम्रपान बंद कीजिए!'],
+    alcohol:     ['शराब पीकर गाड़ी न चलाएँ। सुरक्षित जगह गाड़ी रोकिए।', 'खतरा! शराब पीकर कभी गाड़ी न चलाएँ। अभी गाड़ी रोकिए!'],
+    drinking:    'कृपया गाड़ी रोककर पानी पीजिए।', eating_now: 'गाड़ी चलाते समय खाना ठीक नहीं। अगले स्टॉप पर खाइए।',
     high_fatigue:['आप बहुत थके हुए हैं। जल्दी ब्रेक लीजिए।', 'थकान बहुत ज़्यादा है। अगली सुरक्षित जगह पर रुकिए।'],
     early: 'आपमें थकान के शुरुआती लक्षण दिख रहे हैं।', look: 'कृपया सड़क की तरफ देखिए।',
     test: 'ड्राइव अलर्ट की आवाज़ चालू है।', start: 'निगरानी शुरू। तीन सेकंड सीधे सामने देखिए।',
@@ -1734,6 +1826,11 @@ const PHRASES = {
     head_down:   ['ਸਿਰ ਉੱਪਰ ਕਰੋ! ਤੁਹਾਨੂੰ ਨੀਂਦ ਆ ਰਹੀ ਹੈ।', 'ਖ਼ਤਰਾ! ਤੁਹਾਡਾ ਸਿਰ ਝੁਕ ਗਿਆ। ਹੁਣੇ ਗੱਡੀ ਰੋਕੋ।'],
     distracted:  ['ਕਿਰਪਾ ਕਰਕੇ ਸੜਕ ਵੱਲ ਧਿਆਨ ਦਿਓ।', 'ਹੁਣੇ ਸੜਕ ਵੱਲ ਦੇਖੋ!'],
     phone_use:   ['ਫ਼ੋਨ ਰੱਖ ਦਿਓ ਅਤੇ ਸੜਕ ਵੱਲ ਧਿਆਨ ਦਿਓ।', 'ਹੁਣੇ ਫ਼ੋਨ ਰੱਖੋ!'],
+    face_touch:  ['ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ। ਅੱਖਾਂ ਮਲਣਾ ਥਕਾਵਟ ਦੀ ਨਿਸ਼ਾਨੀ ਹੈ।', 'ਚਿਹਰੇ ਤੋਂ ਹੱਥ ਹਟਾਓ ਅਤੇ ਬ੍ਰੇਕ ਲਓ!'],
+    eating:      ['ਕਿਰਪਾ ਕਰਕੇ ਗੱਡੀ ਰੋਕ ਕੇ ਖਾਓ ਜਾਂ ਪੀਓ। ਸੜਕ ਵੱਲ ਧਿਆਨ ਦਿਓ।', 'ਹੁਣੇ ਖਾਣਾ ਬੰਦ ਕਰੋ ਅਤੇ ਦੋਵੇਂ ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ!'],
+    smoking:     ['ਗੱਡੀ ਚਲਾਉਂਦੇ ਸਮੇਂ ਸਿਗਰਟ ਨਾ ਪੀਓ। ਦੋਵੇਂ ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ।', 'ਖ਼ਤਰਾ! ਹੁਣੇ ਸਿਗਰਟ ਬੰਦ ਕਰੋ!'],
+    alcohol:     ['ਸ਼ਰਾਬ ਪੀ ਕੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਸੁਰੱਖਿਅਤ ਥਾਂ ਗੱਡੀ ਰੋਕੋ।', 'ਖ਼ਤਰਾ! ਸ਼ਰਾਬ ਪੀ ਕੇ ਕਦੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਹੁਣੇ ਗੱਡੀ ਰੋਕੋ!'],
+    drinking:    'ਕਿਰਪਾ ਕਰਕੇ ਗੱਡੀ ਰੋਕ ਕੇ ਪਾਣੀ ਪੀਓ।', eating_now: 'ਗੱਡੀ ਚਲਾਉਂਦੇ ਖਾਣਾ ਠੀਕ ਨਹੀਂ। ਅਗਲੇ ਸਟਾਪ ਤੇ ਖਾਓ।',
     high_fatigue:['ਤੁਸੀਂ ਬਹੁਤ ਥੱਕੇ ਹੋਏ ਹੋ। ਜਲਦੀ ਬ੍ਰੇਕ ਲਓ।', 'ਥਕਾਵਟ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹੈ। ਅਗਲੀ ਸੁਰੱਖਿਅਤ ਥਾਂ ਤੇ ਰੁਕੋ।'],
     early: 'ਤੁਹਾਡੇ ਵਿੱਚ ਥਕਾਵਟ ਦੇ ਸ਼ੁਰੂਆਤੀ ਲੱਛਣ ਦਿਸ ਰਹੇ ਹਨ।', look: 'ਕਿਰਪਾ ਕਰਕੇ ਸੜਕ ਵੱਲ ਦੇਖੋ।',
     test: 'ਡਰਾਈਵ ਅਲਰਟ ਦੀ ਆਵਾਜ਼ ਚਾਲੂ ਹੈ।', start: 'ਨਿਗਰਾਨੀ ਸ਼ੁਰੂ। ਤਿੰਨ ਸਕਿੰਟ ਸਿੱਧਾ ਸਾਹਮਣੇ ਦੇਖੋ।',
@@ -1978,12 +2075,12 @@ function sendKss(v, phase){
 }
 async function stop(){
   if(!running) return;
-  paused = true; setSoundLevel(0); $('alarm').classList.remove('show');
+  paused = true; alarmActive = false; bannerWanted = false; setSoundLevel(0); $('alarm').classList.remove('show');
   const k = await askKss('end');
   if(k!=null && ws && ws.readyState===1) ws.send(JSON.stringify({type:'kss', value:k, phase:'end'}));
   await new Promise(r => setTimeout(r, 200));   // let the last messages reach the server
   running=false; clearInterval(timer); setSoundLevel(0); $('alarm').classList.remove('show'); $('earlyBanner').classList.remove('show');
-  watchLocation(false); voiceListen(false); watchMotion(false); resetNight(); speechSynthesis?.cancel?.();
+  watchLocation(false); voiceListen(false); watchMotion(false); resetNight(); drawDeviceBoxes([]); speechSynthesis?.cancel?.();
   if(driveSec >= 10) toast('✓ Trip saved – open Trip Reports to see it');
   if(ws){ ws.onclose=null; ws.close(); ws=null; }
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
@@ -2205,8 +2302,14 @@ function render(r){
   else if(r.eyes_visible){ $('dEyes').textContent='👁 Visible'; $('dEyes').style.color='var(--green)'; $('dEyesSub').textContent='full eye tracking'; }
   if(r.speed_kmh!=null){ $('dSpeed').textContent = Math.round(r.speed_kmh)+' km/h'; $('dSpeedSub').textContent = r.speed_gated ? 'parked – alarms paused' : 'moving – alarms active'; $('dSpeed').style.color = r.speed_gated ? 'var(--muted)' : ''; }
   else { $('dSpeed').textContent='—'; $('dSpeedSub').textContent = config.speed_gate_kmh ? 'waiting for GPS' : 'speed gating off'; }
+  drawDeviceBoxes([...(r.phone_boxes || []), ...(r.food_boxes || []), ...(r.hand_boxes || [])], r.frame_size);
+  if(r.hand_touch){ $('dHands').textContent = r.touch_kind==='eyes' ? '🥱 Rubbing eyes' : '✋ On face'; $('dHands').style.color='var(--amber)';
+    $('dHandsSub').textContent = `${fmt(r.touch_seconds||0,1)} s`; }
+  else if(r.glancing){ $('dHands').textContent = `👀 ${r.glances_recent} glances`; $('dHands').style.color='var(--amber)'; $('dHandsSub').textContent='looking around – last 10 s'; }
+  else if(r.hand_touch!=null){ $('dHands').textContent = '✓ Hands off · eyes ahead'; $('dHands').style.color='var(--green)';
+    $('dHandsSub').textContent = r.glances_recent ? `${r.glances_recent} glance(s) in 10 s` : 'no glances'; }
   if(r.phone_backend || r.phone_detected!=null){
-    $('dPhone').textContent = r.phone_detected ? `📱 Seen ${fmt(r.phone_seconds||0,1)} s` : '✓ None';
+    $('dPhone').textContent = r.phone_detected ? `${r.phone_kind==='laptop'?'💻':'📱'} ${r.phone_kind||'phone'} ${fmt(r.phone_seconds||0,1)} s` : '✓ None';
     $('dPhone').style.color = r.phone_detected ? 'var(--red)' : 'var(--green)';
     $('dPhoneSub').textContent = r.phone_backend || 'object detector';
   }else { $('dPhone').textContent = 'Off'; $('dPhone').style.color = 'var(--muted)'; $('dPhoneSub').textContent = 'enable in Settings'; }
@@ -2220,31 +2323,100 @@ function render(r){
   if($('crashModal').classList.contains('show') || night.open) return;   // crash / check-in dialog owns the sound
 
   // escalating alarm: L1 banner + chime, L2 overlay + beeps, L3 siren + flashing
-  $('earlyBanner').classList.toggle('show', lvl===1);
-  if(lvl===1){
-    const forecast = eta!=null && eta<=10 && !r.looking_away && !r.yawning;
-    $('earlyBanner').textContent = r.camera_blind ? "🌑 Too dark – the camera can't see you. Switch on a cabin light or use an IR camera. Voice check-ins are on." : r.phone_detected ? '📱 Phone detected – put it down' : r.looking_away ? '👀 Keep your eyes on the road' : r.yawning ? '🥱 Yawning detected – early sign of fatigue'
-      : forecast ? `🔮 Fatigue rising – likely drowsy in ~${eta<1?'1':Math.round(eta)} min. Plan a break now.` : '⚠ Early signs of fatigue – consider a break soon';
-    if(r.camera_blind) {}   // spoken once by nightUpdate
-    else if(r.looking_away || r.phone_detected) speak(r.phone_detected ? phrase('phone_use')[0] : phrase('look'), 'l1look', 20000);
-    else if(forecast && (PREFS.voiceLang||'en-IN')==='en-IN') speak(`Your fatigue is rising. Plan a break in the next ${Math.max(1,Math.round(eta))} minutes.`, 'l1f', 20000);
-    else say('early', 'l1', 20000);
+  /* ONE message at a time: the server picks the single most important event (r.event);
+     the banner and the voice follow it, the alarm overlay takes over for level 2-3. */
+  const ev = r.event !== undefined ? r.event
+           : (r.camera_blind ? 'too_dark' : r.phone_detected ? 'phone_use' : r.looking_away ? 'looking_away' : r.yawning ? 'yawning' : lvl===1 ? 'early_fatigue' : null);
+  voiceFollowScreen(r.alarm ? 'A:' + r.alarm_reason : ev ? 'E:' + ev : null);
+  // the plain "early signs of fatigue" message only after 3 s of steady fatigue (no flicker)
+  l1FatigueSince = ev==='early_fatigue' ? (l1FatigueSince ?? now) : null;
+  const showBanner = !r.alarm && !!ev && ev!=='calibrating' && !(ev==='early_fatigue' && now - l1FatigueSince < 3000);
+  // SOUND FIRST, THEN THE SCREEN: the chime / voice start now, the banner appears a moment later
+  bannerWanted = showBanner;
+  if(!showBanner){ clearTimeout(bannerTimer); bannerTimer = null; $('earlyBanner').classList.remove('show'); }
+  else if(!$('earlyBanner').classList.contains('show') && !bannerTimer){
+    if(!r.alarm && lvl===1 && !r.camera_blind) setSoundLevel(1);
+    bannerTimer = setTimeout(() => { bannerTimer = null; if(bannerWanted) $('earlyBanner').classList.add('show'); }, SCREEN_DELAY_MS);
+  }
+  if(showBanner){
+    const EVENT_TEXT = {
+      too_dark: "🌑 Too dark – the camera can't see you. Switch on a cabin light or use an IR camera. Voice check-ins are on.",
+      asleep: '😴 Face dropped out of view – WAKE UP!',
+      phone_use: r.phone_kind==='laptop' ? '💻 Device in hand – eyes on the road' : '📱 Phone detected – put it down',
+      face_touch: r.touch_kind==='eyes' ? '🥱 Rubbing your eyes – a sign of tiredness. Hands on the wheel.' : '✋ Hand on your face – hands on the wheel',
+      eating: '🍔 Eating while driving – eat at your next stop',
+      smoking: '🚭 Smoking while driving – HIGH RISK',
+      alcohol: '🍺 Alcohol at the wheel – HIGH RISK, stop the car',
+      drinking: '🥤 Drinking while driving – keep it quick, eyes on the road',
+      looking_away: '👀 Keep your eyes on the road',
+      looking_around: `👀 Looking around a lot (${r.glances_recent||0} glances in 10 s) – eyes on the road`,
+      yawning: '🥱 Yawning – an early sign of fatigue',
+      rising_fatigue: `🔮 Fatigue rising – likely drowsy in ~${eta==null||eta<1?'1':Math.round(eta)} min. Plan a break now.`,
+      early_fatigue: `⚠ Early signs of fatigue – eyes closed ${Math.round((r.perclos||0)*100)}% of the last minute (score ${Math.round(score)})`,
+    };
+    $('earlyBanner').textContent = EVENT_TEXT[ev] || '⚠ Stay alert';
+    const VOICE = {
+      phone_use: () => phrase('phone_use')[0], face_touch: () => phrase('face_touch')[0],
+      eating: () => phrase('eating_now'), drinking: () => phrase('drinking'),
+      smoking: () => phrase('smoking')[0], alcohol: () => phrase('alcohol')[0],
+      looking_away: () => phrase('look'), looking_around: () => phrase('look'), asleep: () => phrase('eyes_closed')[1],
+      yawning: () => phrase('early'), early_fatigue: () => phrase('early'),
+      rising_fatigue: () => (PREFS.voiceLang||'en-IN')==='en-IN' ? `Your fatigue is rising. Plan a break in the next ${Math.max(1,Math.round(eta||1))} minutes.` : phrase('early'),
+    };
+    const slow = ev==='early_fatigue' || ev==='rising_fatigue';
+    // spoken immediately (no waiting for a gap) – only the slow fatigue hints wait their turn
+    if(ev !== 'too_dark' && VOICE[ev]) speak(VOICE[ev](), 'ev_'+ev, slow ? 60000 : 8000, !slow, 'E:'+ev);
   }
   if(r.alarm){
-    const phone = r.alarm_reason==='phone_use', dis = r.alarm_reason==='distracted' || phone;
-    $('alarmTitle').textContent = phone ? 'PUT THE PHONE DOWN!' : dis ? 'EYES ON ROAD!' : 'WAKE UP!';
-    $('alarmLevel').textContent = `LEVEL ${lvl} · ${LEVEL_NAME[lvl]}` + (r.alarms_last_10min>1 ? ` · ${r.alarms_last_10min} ALARMS IN 10 MIN` : '');
-    $('alarmReason').textContent = (REASON[r.alarm_reason]||'Drowsiness detected') + (dis ? ' – look ahead' : ' – pull over and rest');
-    $('alarm').classList.toggle('l3', lvl>=3); $('alarm').classList.toggle('distracted', dis);
+    // ONE clear alarm: its own sign, title and reason; nothing else is shown with it
+    const AL = {
+      eyes_closed:  ['😴', 'WAKE UP!'],
+      head_down:    ['😴', 'WAKE UP! HEAD UP!'],
+      high_fatigue: ['🛑', 'TAKE A BREAK NOW!'],
+      phone_use:    ['📵', 'PUT THE PHONE DOWN!'],
+      face_touch:   ['✋', 'HAND OFF YOUR FACE!'],
+      distracted:   ['👀', 'EYES ON ROAD!'],
+      smoking:      ['🚭', 'NO SMOKING WHILE DRIVING!'],
+      alcohol:      ['🍺', 'NO ALCOHOL – STOP THE CAR!'],
+      eating:       r.eat_kind==='drinking' ? ['🥤', 'DRINK LATER – EYES ON ROAD!'] : ['🍔', 'EAT LATER – EYES ON ROAD!'],
+    }[r.alarm_reason] || ['⚠️', 'WAKE UP!'];
+    const dis = ['distracted','phone_use','face_touch','eating','smoking','alcohol'].includes(r.alarm_reason);
+    $('alarmSign').textContent = AL[0];
+    $('alarmTitle').textContent = AL[1];
+    $('alarmLevel').innerHTML = `LEVEL ${lvl} · ${LEVEL_NAME[lvl]}` + (r.high_risk ? '<span class="alarm-risk">HIGH RISK</span>' : '')
+      + (r.alarms_last_10min>1 ? ` · ${r.alarms_last_10min} ALARMS IN 10 MIN` : '');
+    $('alarmReason').textContent = (REASON[r.alarm_reason]||'Drowsiness detected') + (r.alarm_reason==='alcohol' ? ' – stop the car safely'
+      : r.alarm_reason==='smoking' ? ' – hands on the wheel' : dis ? ' – look ahead' : ' – pull over and rest');
+    $('alarm').classList.toggle('l3', lvl>=3); $('alarm').classList.toggle('distracted', dis && !r.high_risk);
+    alarmActive = true;
     if(!alarmMuted){
-      $('alarm').classList.add('show'); setSoundLevel(lvl);
+      // SOUND FIRST: the alarm sound and the voice start at once, the full-screen alert follows
+      setSoundLevel(lvl);
       const lines = ALARM_SPEECH[r.alarm_reason] || ALARM_SPEECH.high_fatigue;
-      speak(lines[lvl>=3 ? 1 : 0], 'alarm'+lvl+r.alarm_reason, 6000, true);
+      speak(lines[lvl>=3 ? 1 : 0], 'alarm'+lvl+r.alarm_reason, 3000, true, 'A:'+r.alarm_reason);
+      if(!$('alarm').classList.contains('show') && !alarmTimer)
+        alarmTimer = setTimeout(() => { alarmTimer = null; if(alarmActive && !alarmMuted) $('alarm').classList.add('show'); }, SCREEN_DELAY_MS);
     }
   }else{
+    alarmActive = false; clearTimeout(alarmTimer); alarmTimer = null;
     alarmMuted=false; $('alarm').classList.remove('show');
     setSoundLevel(lvl===1 && !r.camera_blind ? 1 : 0);
   }
+}
+
+/* boxes around detected phones / devices, drawn over the (mirrored, cover-fitted) video */
+function drawDeviceBoxes(boxes, size){
+  const host = $('devBoxes'); if(!host) return;
+  if(!boxes.length || !size){ host.innerHTML = ''; return; }
+  const W = host.clientWidth, H = host.clientHeight, [fw, fh] = size;
+  const sc = Math.max(W/fw, H/fh), ox = (W - fw*sc)/2, oy = (H - fh*sc)/2;
+  host.innerHTML = boxes.map(([x0,y0,x1,y1,score,kind]) => {
+    const left = W - (ox + x1*fw*sc), top = oy + y0*fh*sc, w = (x1-x0)*fw*sc, h = (y1-y0)*fh*sc;   // mirror x
+    const col = kind==='hand' || kind==='food' || kind==='drink' ? 'var(--amber)' : 'var(--red)',
+          icon = kind==='hand' ? '✋' : kind==='laptop' ? '💻' : kind==='drink' ? '🥤' : kind==='alcohol' ? '🍺' : kind==='food' ? '🍔' : '📱';
+    return `<div style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;border:3px solid ${col};border-radius:8px;box-shadow:0 0 18px rgba(239,68,68,.5)">
+      <span class="mono" style="position:absolute;left:-3px;top:-24px;background:${col};color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap">${icon} ${kind==='hand' ? 'hand on face' : esc(kind)+' '+(score*100).toFixed(0)+'%'}</span></div>`;
+  }).join('');
 }
 
 /* ---------- 60 s fatigue chart ---------- */
@@ -2469,6 +2641,103 @@ async function loadModelInfo(){
   if(acc!==undefined){ $('homeAcc').textContent=(acc*100).toFixed(1)+'%'; $('homeAccSub').textContent='Kaggle Yawn-Eye test set'; }
   renderAbout();
 }
+/* ---- extra statistics under the classical-vs-deep-learning table ---- */
+const SHORT = n => n.replace(' (RBF kernel)','').replace('K-Nearest Neighbours','KNN').replace('Logistic Regression','Log. Regression')
+  .replace('Linear Discriminant Analysis','LDA').replace('MLP Neural Network (ANN)','MLP (ANN)').replace('Gradient Boosting','Grad. Boosting')
+  .replace(' (from scratch)','').replace('MobileNetV2 CNN','MobileNetV2');
+function statTile(label, value, sub, color){
+  return `<div style="background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px 16px">
+    <small class="mono muted" style="font-size:11px;letter-spacing:.06em">${label}</small>
+    <div class="mono" style="font-size:22px;margin:6px 0 2px;color:${color||'var(--cyan)'}">${value}</div>
+    <div class="muted" style="font-size:12px;line-height:1.4">${sub}</div></div>`;
+}
+function classicalFacts(c, m){
+  const rows = c.results.filter(r => r.f1!=null), cls = rows.filter(r => r.family!=='deep learning'), dl = rows.filter(r => r.family==='deep learning');
+  const by = (arr, k, dir=-1) => [...arr].sort((a,b) => dir*((a[k]??0)-(b[k]??0)))[0];
+  const best = by(rows,'f1'), bestC = by(cls,'f1'), bestD = dl.length ? by(dl,'f1') : null;
+  const fast = [...rows].filter(r => r.infer_ms!=null).sort((a,b) => a.infer_ms-b.infer_ms)[0];
+  const stable = cls.filter(r => r.cv_std!=null).sort((a,b) => a.cv_std-b.cv_std)[0];
+  const n90 = rows.filter(r => r.accuracy>=0.9).length;
+  const sig = m?.significance?.results?.find(r => r.p_value!=null && r.model.startsWith(bestC?.model||'~'));
+  const gap = bestD && bestC ? (bestD.f1-bestC.f1)*100 : null;
+  const recall = by(rows,'recall');
+  return [
+    statTile('BEST OVERALL', SHORT(best.model), `F1 ${best.f1.toFixed(3)} · accuracy ${(best.accuracy*100).toFixed(1)}%`),
+    statTile('BEST CLASSICAL ML', SHORT(bestC.model), `F1 ${bestC.f1.toFixed(3)} · ${bestC.infer_ms?.toFixed(2) ?? '—'} ms/image`),
+    gap==null ? statTile('MODELS COMPARED', rows.length, `${cls.length} classical · ${dl.length} deep learning`)
+      : statTile('CNN vs BEST CLASSICAL', `${gap>=0?'+':''}${gap.toFixed(1)} pts F1`,
+          sig ? `McNemar p = ${sig.p_value.toFixed(3)} → ${sig.significant ? 'significant' : 'not significant'}` : 'run significance.py for the p-value',
+          gap>=0 ? 'var(--cyan)' : 'var(--amber)'),
+    statTile('FEWEST MISSED CLOSURES', SHORT(recall.model), `recall ${(recall.recall*100).toFixed(1)}% – catches the most closed eyes`, 'var(--green)'),
+    statTile('FASTEST', SHORT(fast.model), `${fast.infer_ms.toFixed(fast.infer_ms<1?3:1)} ms per image`),
+    stable ? statTile('MOST STABLE (5-FOLD CV)', SHORT(stable.model), `${(stable.cv_accuracy*100).toFixed(1)} ± ${(stable.cv_std*100).toFixed(1)}%`) 
+           : statTile('≥ 90% ACCURACY', `${n90} / ${rows.length}`, 'models above 90% on the test set'),
+  ].join('');
+}
+function speedScatter(c, m){
+  const pts = c.results.filter(r => r.f1!=null && r.infer_ms>0);
+  // the main CNN's timing comes from train_model.py when the comparison table has none
+  const cnn = c.results.find(r => r.family==='deep learning' && !(r.infer_ms>0));
+  if(cnn && m?.infer_ms>0) pts.push({...cnn, infer_ms: m.infer_ms});
+  if(pts.length < 2) return '';
+  const W=560, H=300, L=50, R=96, T=16, B=44;
+  const lx = v => Math.log10(v), xs = pts.map(p => lx(p.infer_ms));
+  const x0 = Math.floor(Math.min(...xs)); let x1 = Math.ceil(Math.max(...xs)); if(x1 <= x0) x1 = x0 + 1;
+  const ys = pts.map(p => p.f1), y0 = Math.max(0, Math.floor((Math.min(...ys)-0.02)*20)/20), y1 = 1;
+  const X = v => L + (lx(v)-x0)/((x1-x0)||1)*(W-L-R), Y = v => T + (y1-v)/((y1-y0)||1)*(H-T-B);
+  let g = '';
+  for(let e=x0; e<=x1; e++) g += `<line x1="${X(10**e)}" x2="${X(10**e)}" y1="${T}" y2="${H-B}" stroke="#1F2A37"/><text x="${X(10**e)}" y="${H-B+18}" fill="#8B98A9" font-size="11" text-anchor="middle">${10**e>=1?10**e:(10**e).toFixed(Math.abs(e))} ms</text>`;
+  for(let v=y0; v<=y1+1e-9; v+=0.05) g += `<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1F2A37"/><text x="${L-8}" y="${Y(v)+4}" fill="#8B98A9" font-size="11" text-anchor="end">${v.toFixed(2)}</text>`;
+  const best = [...pts].sort((a,b) => b.f1-a.f1)[0];
+  const dots = pts.map(p => { const dl = p.family==='deep learning', col = dl ? '#F59E0B' : '#22D3EE';
+    return `<g><title>${esc(p.model)}: F1 ${p.f1.toFixed(3)}, ${p.infer_ms.toFixed(2)} ms</title><circle cx="${X(p.infer_ms)}" cy="${Y(p.f1)}" r="${p===best?7:5}" fill="${col}" stroke="#0B0F14" stroke-width="1.5"/>
+      <text x="${X(p.infer_ms)+8}" y="${Y(p.f1)+4}" fill="#C9D4DF" font-size="10.5">${esc(SHORT(p.model))}</text></g>`; }).join('');
+  return `<div class="card" style="margin-top:16px"><small class="mono muted">ACCURACY vs SPEED – TOP-LEFT IS BEST</small>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;margin-top:8px" role="img" aria-label="F1 versus inference time per model">${g}${dots}
+    <text x="${(L+W-R)/2}" y="${H-6}" fill="#8B98A9" font-size="11" text-anchor="middle">time per image (log scale) →</text>
+    <text x="14" y="${(T+H-B)/2}" fill="#8B98A9" font-size="11" text-anchor="middle" transform="rotate(-90 14 ${(T+H-B)/2})">F1-score</text></svg>
+    <div class="chart-legend"><span><i style="background:var(--cyan)"></i>Classical ML</span><span><i style="background:var(--amber)"></i>Deep learning</span></div></div>`;
+}
+function errorBars(c){
+  const cms = c.confusion_matrices || {};
+  const rows = Object.entries(cms).filter(([,cm]) => Array.isArray(cm) && cm.length===2)
+    .map(([name,[[tn,fp],[fn,tp]]]) => ({name, fp, fn, total: tn+fp+fn+tp})).sort((a,b) => (a.fn+a.fp)-(b.fn+b.fp));
+  if(!rows.length) return '';
+  const max = Math.max(...rows.map(r => r.fp+r.fn), 1);
+  return `<div class="card" style="margin-top:16px"><small class="mono muted">MISTAKES PER MODEL – MISSED CLOSED EYES ARE THE DANGEROUS ONES</small>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">${rows.map(r => `
+      <div style="display:grid;grid-template-columns:130px 1fr 54px;gap:10px;align-items:center;font-size:12.5px">
+        <span title="${esc(r.name)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(SHORT(r.name))}</span>
+        <div style="display:flex;height:14px;background:var(--card2);border-radius:4px;overflow:hidden">
+          <i style="width:${r.fn/max*100}%;background:var(--red)" title="${r.fn} missed (closed → open)"></i>
+          <i style="width:${r.fp/max*100}%;background:var(--amber)" title="${r.fp} false alarms (open → closed)"></i></div>
+        <span class="mono muted" style="text-align:right" title="missed + false alarms">${r.fn}+${r.fp}</span></div>`).join('')}</div>
+    <div class="chart-legend" style="margin-top:10px"><span><i style="background:var(--red)"></i>Missed closures (false negatives)</span><span><i style="background:var(--amber)"></i>False alarms (false positives)</span></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Numbers = missed + false alarms, out of ${rows[0].total} test images. Fewest total mistakes at the top.</p></div>`;
+}
+function cvChart(c){
+  const rows = c.results.filter(r => r.cv_accuracy!=null).sort((a,b) => b.cv_accuracy-a.cv_accuracy);
+  if(!rows.length) return '';
+  const lo = Math.max(0, Math.min(...rows.map(r => r.cv_accuracy-r.cv_std)) - 0.02), hi = 1, P = v => (v-lo)/(hi-lo)*100;
+  return `<div class="card" style="margin-top:16px"><small class="mono muted">5-FOLD CROSS-VALIDATION – MEAN ± 1 STD</small>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">${rows.map(r => `
+      <div style="display:grid;grid-template-columns:130px 1fr 92px;gap:10px;align-items:center;font-size:12.5px">
+        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(SHORT(r.model))}</span>
+        <div style="position:relative;height:14px;background:var(--card2);border-radius:4px">
+          <i style="position:absolute;top:5px;height:4px;left:${P(r.cv_accuracy-r.cv_std)}%;width:${P(r.cv_accuracy+r.cv_std)-P(r.cv_accuracy-r.cv_std)}%;background:var(--line2)"></i>
+          <i style="position:absolute;top:2px;width:10px;height:10px;border-radius:50%;left:calc(${P(r.cv_accuracy)}% - 5px);background:var(--cyan)"></i></div>
+        <span class="mono muted" style="text-align:right">${(r.cv_accuracy*100).toFixed(1)} ± ${(r.cv_std*100).toFixed(1)}</span></div>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Scale ${(lo*100).toFixed(0)}–100%. A short bar = the model gives similar accuracy on every fold (stable).</p></div>`;
+}
+function renderClassicalPlots(c, m){
+  const img = (f, label) => `<div class="card"><small class="mono muted">${label}</small><img style="margin-top:10px;width:100%;border-radius:8px;background:#fff" src="${API}/api/model-plot/${f}" alt="${label}"></div>`;
+  const cmp = (c.plots||[]).find(f => f.includes('model_comparison')), rf = (c.plots||[]).find(f => f.includes('rf_'));
+  $('clPlots').innerHTML = `<div>${cmp ? img(cmp,'ACCURACY & F1 PER MODEL') : ''}
+      <div class="card" style="margin-top:16px"><small class="mono muted">KEY FINDINGS</small>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">${classicalFacts(c, m)}</div></div>
+      ${speedScatter(c, m)}</div>
+    <div>${rf ? img(rf,'RANDOM FOREST FEATURE IMPORTANCE (HOG BLOCKS)') : ''}${errorBars(c)}${cvChart(c)}</div>`;
+}
 function renderClassical(m){
   const c = m?.classical;
   if(!c?.results?.length){
@@ -2492,7 +2761,7 @@ function renderClassical(m){
       <td class="mono">${r.infer_ms==null?'—':r.infer_ms.toFixed(2)}</td>
       <td class="mono">${r.size_kb==null?'—':r.size_kb>1024?(r.size_kb/1024).toFixed(1)+' MB':Math.round(r.size_kb)+' KB'}</td></tr>`;
   }).join('');
-  $('clPlots').innerHTML = (c.plots||[]).map(f => `<div class="card"><small class="mono muted">${f.includes('rf_') ? 'RANDOM FOREST FEATURE IMPORTANCE (HOG BLOCKS)' : 'ACCURACY & F1 PER MODEL'}</small><img style="margin-top:10px;width:100%;border-radius:8px;background:#fff" src="${API}/api/model-plot/${f}" alt="${f}"></div>`).join('');
+  renderClassicalPlots(c, m);
 }
 /* ---------- deep learning + temporal model tables ---------- */
 const pctv = v => v==null ? '—' : (v*100).toFixed(1)+'%';

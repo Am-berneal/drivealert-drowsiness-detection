@@ -55,7 +55,7 @@ from fastapi.staticfiles import StaticFiles
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 from pydantic import BaseModel
 
-from detector import (KSS_LABELS, DetectorConfig, DrowsinessDetector, load_classical_model,
+from detector import (DETECTOR_VERSION, KSS_LABELS, DetectorConfig, DrowsinessDetector, load_classical_model,
                       load_keras_model)
 from phone_detector import get_phone_detector
 from temporal import load_temporal
@@ -73,7 +73,7 @@ PLOTS = {f"{t}_{k}.png" for t in ("eye", "yawn")
                    "failures")} | {"fusion_tuning.png"}
 EYE_MODES = ("fusion", "ear", "cnn", "classical")
 
-CRITICAL = {"eyes_closed", "head_down", "distracted", "phone_use", "high_fatigue", "crash", "checkin_missed"}
+CRITICAL = {"eyes_closed", "head_down", "distracted", "phone_use", "face_touch", "eating", "smoking", "alcohol", "high_fatigue", "crash", "checkin_missed"}
 NIGHT_EVENTS = {"swerving": "warning", "checkin_missed": "critical", "checkin_ok": "info"}
 SUS_FILE = DATA_DIR / "sus.json"
 WARNING_COOLDOWN = 15.0  # seconds between repeated "rising_fatigue" warnings
@@ -88,10 +88,24 @@ def _load(path: Path, default):
         return default
 
 
-def _save(path: Path, data):
+def _save(path: Path, data) -> bool:
+    """Write JSON safely. On Windows, OneDrive sync or antivirus can lock the file for a moment,
+    so retry a few times and never crash the request because of it."""
+    text = json.dumps(data, indent=1)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-    tmp.replace(path)
+    for attempt in range(6):
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+            return True
+        except PermissionError:
+            time.sleep(0.15 * (attempt + 1))
+    try:                                   # last resort: write in place
+        path.write_text(text, encoding="utf-8")
+        return True
+    except OSError as exc:
+        print(f"[save] could not write {path.name}: {exc}")
+        return False
 
 
 DEFAULT_SETTINGS = {
@@ -191,6 +205,16 @@ def rule_report(trip: dict) -> dict:
         recs.append("Frequent yawning: ventilate the cabin, drink water and avoid heavy meals before driving.")
     if alarms.get("distracted"):
         recs.append("Keep your eyes on the road; set up navigation and music before starting.")
+    if alarms.get("face_touch"):
+        recs.append("Hands were on the face or rubbing the eyes – rubbing the eyes is an early sign of tiredness; "
+                    "keep both hands on the wheel and take a break.")
+    if alarms.get("alcohol"):
+        recs.append("Alcohol was seen at the wheel: never drink and drive. This trip should be reviewed.")
+    if alarms.get("smoking"):
+        recs.append("Smoking was detected while driving: it takes a hand off the wheel and the eyes off the road.")
+    if alarms.get("eating"):
+        recs.append("Eating or drinking was detected while driving: have snacks and water during breaks, "
+                    "or use a bottle with a straw while stopped.")
     if alarms.get("phone_use"):
         recs.append("Phone use was detected while driving: put the phone in a mount or on Do Not Disturb.")
     if warns.get("too_dark"):
@@ -500,6 +524,17 @@ class ConfigUpdate(BaseModel):
     fusion_weight: float | None = None
     fusion_threshold: float | None = None
     night_eye_model: bool | None = None
+    hand_detection: bool | None = None
+    touch_seconds: float | None = None
+    glance_degrees: float | None = None
+    glance_count: int | None = None
+    glance_alarm_count: int | None = None
+    eat_detection: bool | None = None
+    eat_seconds: float | None = None
+    drink_seconds: float | None = None
+    smoke_detection: bool | None = None
+    smoke_seconds: float | None = None
+    alarm_hold_seconds: float | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -529,6 +564,7 @@ def warm_up():
 def health():
     return {
         "status": "ok",
+        "detector_version": DETECTOR_VERSION,
         "models": {"eye": load_keras_model(EYE_MODEL) is not None,
                    "yawn": load_keras_model(YAWN_MODEL) is not None,
                    "night": (MODEL_DIR / "eye_night.keras").exists(),
@@ -556,9 +592,19 @@ def update_config(update: ConfigUpdate):
         raise HTTPException(400, f"eye_mode must be one of {EYE_MODES}")
     for k, v in changes.items():
         setattr(CONFIG, k, v)
+    if "phone_seconds" in changes:
+        CONFIG.phone_seconds = changes["phone_seconds"] = min(10.0, max(0.0, float(changes["phone_seconds"])))
+    # values you set by hand win over thresholds learned from "False alarm" presses
+    profile = SETTINGS["profiles"].get(SETTINGS["driver_name"])
+    if profile:
+        for k in DrowsinessDetector.PROFILE_KEYS:
+            if k in changes:
+                profile[k] = changes[k]
     for det in SESSIONS:  # live sessions pick up new thresholds
         for k, v in changes.items():
             setattr(det.cfg, k, v)
+        if det.cfg.phone_detection and det.phone is None:   # switched on during a session
+            det.phone = get_phone_detector(str(MODEL_DIR))
     save_settings()
     return asdict(CONFIG)
 
@@ -873,7 +919,7 @@ def model_info():
         m = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
         entry = {k: m.get(k) for k in ("classes", "img_size", "test_metrics", "counts", "split_sizes",
                                        "confusion_matrix", "classification_report", "history",
-                                       "fine_tune_start")}
+                                       "fine_tune_start", "infer_ms", "train_s")}
         entry["plots"] = [p for p in (f"{task}_confusion_matrix.png", f"{task}_training_curves.png")
                           if (MODEL_DIR / p).exists()]
         if Path(model_path).exists():

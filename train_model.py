@@ -114,6 +114,18 @@ def split(paths, labels):
     return (p_tr, y_tr), (p_val, y_val), (p_te, y_te)
 
 
+def webcam_like(img, img_size):
+    """Make a sharp dataset photo look like a live webcam crop: the eye in a 640-px webcam frame
+    is only ~25-50 px wide, so it is blurry once enlarged, and JPEG-compressed.
+    Without this the CNN learns "sharp = open, blurry = closed" and calls real open eyes closed."""
+    small = tf.random.uniform([], 18, 56, dtype=tf.int32)
+    img = tf.image.resize(img, [small, small], antialias=True)
+    img = tf.image.resize(img, [img_size, img_size])
+    img = tf.cast(tf.clip_by_value(img, 0, 255), tf.uint8)
+    img = tf.image.random_jpeg_quality(img, 40, 90)
+    return tf.cast(img, tf.float32)
+
+
 def make_ds(paths, labels, img_size, batch, shuffle):
     def load(path, label):
         img = tf.io.read_file(path)
@@ -121,10 +133,16 @@ def make_ds(paths, labels, img_size, batch, shuffle):
         img = tf.image.resize(img, [img_size, img_size])
         return img, tf.cast(label, tf.float32)
 
+    def degrade(img, label):   # training only, on ~60% of images
+        img = tf.cond(tf.random.uniform([]) < 0.6, lambda: webcam_like(img, img_size), lambda: img)
+        return img, label
+
     ds = tf.data.Dataset.from_tensor_slices((paths, labels))
     if shuffle:
         ds = ds.shuffle(len(paths), seed=SEED, reshuffle_each_iteration=True)
     ds = ds.map(load, num_parallel_calls=tf.data.AUTOTUNE)
+    if shuffle:
+        ds = ds.map(degrade, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch).prefetch(tf.data.AUTOTUNE)
 
 

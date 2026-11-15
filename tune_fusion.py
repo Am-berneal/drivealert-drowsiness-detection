@@ -13,10 +13,10 @@ What is tuned (validation = your clips):
 
 Run:
   python tune_fusion.py --videos clips              # writes results/fusion_tuning.*
-  python tune_fusion.py --videos clips --apply      # also saves the best values as the app's settings
+  python tune_fusion.py --videos clips --apply      # also saves the best values as the app's settings 
 
-Honest use: tune on some people and report final numbers with evaluate.py on OTHER people
-(use --people to choose which videos to tune on), otherwise the result is optimistic.
+Honest use: tune on some people and report final numbers with evaluate.py on OTHER people 
+(use --people to choose which videos to tune on), otherwise the result is optimistic. 
 """
 from __future__ import annotations
 
@@ -222,7 +222,7 @@ def main():
            "Note: these values were tuned on the clips above. Report final accuracy on different people "
            "with evaluate.py so the numbers are not optimistic."]
     (out / "fusion_tuning.md").write_text("\n".join(md) + "\n", encoding="utf-8")
-    print("\n".join(md))
+    print("\n".join(md)) 
 
     if args.apply:
         sf = Path("data/settings.json")

@@ -1,0 +1,267 @@
+"""
+End-to-end alert scenarios, frame by frame at 15 fps.
+
+The camera, MediaPipe and the object detector are replaced by small fakes whose state each test
+sets (eye openness, mouth, head angles, hand position, objects in view). Everything else – timers,
+priorities, the one-alert-at-a-time rule, holding an alert on screen – is the real detector.
+
+For every scenario we check three things:
+  1. the right alert appears, and fast enough,
+  2. no other alert or banner is mixed in while it is shown,
+  3. it goes away again when the driver stops.
+"""
+import types
+
+import numpy as np
+import pytest
+
+import detector as D
+
+DT = 1 / 15
+FACE = (256, 144, 384, 336)          # face box of the fake landmarks, in pixels (640 x 480 frame)
+MOUTH = (320, 294)                   # centre of the lips in that box
+
+
+class _P:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+
+rng = np.random.default_rng(1)
+LM = [_P(0.4 + 0.2 * rng.random(), 0.3 + 0.4 * rng.random()) for _ in range(478)]
+for i in D.FACE_OVAL:                # make the face box exactly FACE
+    LM[i] = _P(rng.choice([0.4, 0.6]), rng.choice([0.3, 0.7]))
+
+
+def hand(tips: dict, base=(330, 420)):
+    """21 hand landmarks: all at `base` except the fingertips given as {index: (x, y)} in px."""
+    pts = [_P(base[0] / 640, base[1] / 480) for _ in range(21)]
+    for i, (x, y) in tips.items():
+        pts[i] = _P(x / 640, y / 480)
+    return types.SimpleNamespace(landmark=pts)
+
+
+SMOKING_HAND = hand({8: (MOUTH[0] - 4, MOUTH[1]), 12: (MOUTH[0] + 6, MOUTH[1] + 3)})
+CHEEK_HAND = hand({8: (270, 230), 12: (300, 200), 4: (262, 250)})
+
+
+class Sim:
+    current = None
+
+    def __init__(self, **cfg):
+        Sim.current = self
+        self.s = dict(ear=0.27, mar=0.1, pitch=0.0, yaw=0.0, face=True, dark=False, hands=[], objects=[])
+        config = D.DetectorConfig(use_cnn=False, use_temporal=False, circadian_risk=False,
+                                  eye_occlusion_check=False, eye_closed_seconds=0.5, head_down_seconds=0.6,
+                                  distraction_seconds=1.0, distraction_degrees=20, phone_seconds=0,
+                                  touch_seconds=0.5, glance_alarm_count=4, **cfg)
+        self.det = D.DrowsinessDetector(config, None, None)
+        sim = self
+
+        class Mesh:
+            def process(self, rgb):
+                ok = sim.s["face"] and not sim.s["dark"]
+                return types.SimpleNamespace(multi_face_landmarks=[types.SimpleNamespace(landmark=LM)] if ok else None)
+
+            def close(self):
+                pass
+
+        class Hands:
+            def process(self, rgb):
+                return types.SimpleNamespace(multi_hand_landmarks=list(sim.s["hands"]) or None)
+
+            def close(self):
+                pass
+
+        class Objects:
+            ok, backend = True, "fake"
+
+            def detect(self, frame):
+                return list(sim.s["objects"])
+
+        self.det.face_mesh, self.det.hands, self.det.phone = Mesh(), Hands(), Objects()
+        self.det._head_pose = lambda pts, w, h: (sim.s["pitch"], sim.s["yaw"], 0.0)
+        self.t = 0.0
+        self.run(3.5)                                     # calibration + a calm moment
+
+    def run(self, sec, **state):
+        self.s.update(state)
+        out, end = [], self.t + sec - 1e-9
+        while self.t < end:
+            img = np.full((480, 640, 3), 5 if self.s["dark"] else 128, np.uint8)
+            r = self.det.process(img, timestamp=self.t)
+            r["t"] = self.t
+            out.append(r)
+            self.t = round(self.t + DT, 6)
+        return out
+
+    def close(self):
+        self.det.close()
+
+
+@pytest.fixture
+def sim(monkeypatch):
+    holder = {}
+    monkeypatch.setattr(D, "eye_aspect_ratio", lambda p: Sim.current.s["ear"])
+    monkeypatch.setattr(D, "mouth_aspect_ratio", lambda p: Sim.current.s["mar"])
+
+    def make(**cfg):
+        holder["sim"] = Sim(**cfg)
+        return holder["sim"]
+    yield make
+    if "sim" in holder:
+        holder["sim"].close()
+
+
+def first(rs, key, value):
+    return next((r["t"] - rs[0]["t"] for r in rs if r[key] == value), None)
+
+
+def reasons(rs):
+    return {r["alarm_reason"] for r in rs if r["alarm_reason"]}
+
+
+def events(rs):
+    return {r["event"] for r in rs if r["event"]}
+
+
+# ------------------------------------------------------------------ scenarios
+def test_calm_driver_gets_nothing(sim):
+    s = sim()
+    rs = s.run(5)
+    assert not reasons(rs) and not events(rs)
+
+
+def test_eyes_closed_wake_up_fast_and_alone(sim):
+    s = sim()
+    rs = s.run(1.5, ear=0.10)
+    assert first(rs, "alarm_reason", "eyes_closed") <= 0.5 + 2 * DT
+    assert reasons(rs) == {"eyes_closed"} and events(rs) == {"eyes_closed"}
+    rs = s.run(4, ear=0.27)
+    assert rs[-1]["alarm_reason"] is None
+
+
+def test_blink_is_not_an_alarm(sim):
+    s = sim()
+    rs = s.run(0.2, ear=0.10) + s.run(2, ear=0.27)
+    assert not reasons(rs)
+
+
+def test_head_drop_with_drooping_eyes(sim):
+    s = sim()
+    rs = s.run(1.5, pitch=25, ear=0.21)
+    assert first(rs, "alarm_reason", "head_down") <= 0.6 + 2 * DT
+    assert reasons(rs) == {"head_down"}
+
+
+def test_looking_down_with_open_eyes_is_not_sleep(sim):
+    s = sim()
+    rs = s.run(2.0, pitch=25, ear=0.27)
+    assert "head_down" not in reasons(rs) and "eyes_closed" not in reasons(rs)
+
+
+def test_turning_away_banner_then_eyes_on_road(sim):
+    s = sim()
+    rs = s.run(2.0, yaw=30, ear=0.15)          # eyes look narrow from the side
+    assert first(rs, "event", "looking_away") <= 2 * DT
+    assert first(rs, "alarm_reason", "distracted") <= 1.0 + 2 * DT
+    assert reasons(rs) == {"distracted"}       # never WAKE UP while turned
+    rs = s.run(4, yaw=0, ear=0.27)
+    assert rs[-1]["alarm_reason"] is None and rs[-1]["event"] is None
+
+
+def test_looking_here_and_there(sim):
+    s = sim()
+    rs = []
+    for _ in range(5):
+        rs += s.run(0.4, yaw=30) + s.run(0.6, yaw=0)
+    assert "looking_around" in events(rs) or "distracted" in reasons(rs)
+    assert "distracted" in reasons(rs)
+    assert not reasons(rs) - {"distracted"}    # never WAKE UP / anything else
+    rs = s.run(6, yaw=0)
+    assert rs[-1]["alarm_reason"] is None and rs[-1]["event"] is None   # clears soon after looking ahead
+
+
+def test_phone_at_once_and_no_wake_up_after(sim):
+    s = sim()
+    phone = [(100, 100, 160, 200, 0.8, "phone")]
+    rs = s.run(1.5, objects=phone, ear=0.12, pitch=20)      # looking down at the phone
+    assert first(rs, "alarm_reason", "phone_use") <= DT
+    assert reasons(rs) == {"phone_use"}
+    after = s.run(1.5, objects=[], ear=0.15, pitch=15) + s.run(2, ear=0.27, pitch=0)
+    assert reasons(after) <= {"phone_use"}                  # only the phone alarm finishing
+    assert after[-1]["alarm_reason"] is None
+
+
+def test_drinking_from_a_bottle(sim):
+    s = sim()
+    bottle = [(300, 270, 340, 420, 0.7, "drink")]
+    rs = s.run(1.5, objects=bottle)
+    assert first(rs, "alarm_reason", "eating") <= 0.3 + 2 * DT
+    assert all(r["eat_kind"] == "drinking" for r in rs if r["alarm_reason"] == "eating")
+    assert reasons(rs) == {"eating"}
+
+
+def test_bottle_in_the_cup_holder_is_ignored(sim):
+    s = sim()
+    rs = s.run(2, objects=[(560, 400, 600, 470, 0.9, "drink")])
+    assert not reasons(rs) and not events(rs)
+
+
+def test_alcohol_is_high_risk_at_once(sim):
+    s = sim()
+    rs = s.run(1.0, objects=[(300, 260, 345, 380, 0.6, "alcohol")])
+    assert first(rs, "alarm_reason", "alcohol") <= DT
+    hit = [r for r in rs if r["alarm_reason"] == "alcohol"]
+    assert all(r["high_risk"] and r["alarm_level"] == 3 for r in hit)
+    assert reasons(rs) == {"alcohol"}
+
+
+def test_smoking_gesture_is_high_risk(sim):
+    s = sim()
+    rs = s.run(2.0, hands=[SMOKING_HAND])
+    t = first(rs, "alarm_reason", "smoking")
+    assert t is not None and t <= 0.8 + 3 * DT
+    assert reasons(rs) == {"smoking"} and "face_touch" not in events(rs) - {"smoking"}
+    assert all(r["alarm_level"] == 3 for r in rs if r["alarm_reason"] == "smoking")
+    rs = s.run(5, hands=[])
+    assert rs[-1]["alarm_reason"] is None
+
+
+def test_hand_on_cheek_is_hand_on_face_not_smoking(sim):
+    s = sim()
+    rs = s.run(1.5, hands=[CHEEK_HAND])
+    assert first(rs, "alarm_reason", "face_touch") <= 0.5 + 3 * DT
+    assert reasons(rs) == {"face_touch"}
+
+
+def test_alert_is_shown_fully_before_it_goes(sim):
+    s = sim()
+    rs = s.run(0.7, hands=[CHEEK_HAND]) + s.run(3, hands=[])
+    on = [r["t"] for r in rs if r["alarm_reason"] == "face_touch"]
+    assert on and on[-1] - on[0] >= 2.0 - 2 * DT          # stays at least 2 s
+    assert reasons(rs) == {"face_touch"}
+
+
+def test_more_important_alert_replaces_at_once(sim):
+    s = sim()
+    s.run(0.7, hands=[CHEEK_HAND])                          # hand-on-face alarm showing
+    rs = s.run(0.5, hands=[], objects=[(100, 100, 160, 200, 0.8, "phone")])
+    assert first(rs, "alarm_reason", "phone_use") <= DT     # the phone does not wait
+
+
+def test_too_dark_is_not_looking_away(sim):
+    s = sim()
+    rs = s.run(3, dark=True)
+    assert "too_dark" in events(rs) and not reasons(rs)
+
+
+def test_one_event_per_frame_always(sim):
+    """A busy mixture: every frame carries exactly one event and its alarm matches it."""
+    s = sim()
+    rs = (s.run(0.6, hands=[CHEEK_HAND]) + s.run(0.6, objects=[(100, 100, 160, 200, 0.8, "phone")])
+          + s.run(0.6, objects=[(300, 270, 340, 420, 0.7, "drink")], hands=[]) + s.run(1, yaw=30, objects=[])
+          + s.run(1, yaw=0, ear=0.1))
+    for r in rs:
+        if r["alarm"]:
+            assert r["event"] == r["alarm_reason"]

@@ -219,6 +219,22 @@ python gradcam.py --model models/eye_model.keras --images <dataset>/train/Closed
 python export_tflite.py --data-dir <dataset>        # -> results/tflite_benchmark.md
 ```
 
+## Our results (real training run)
+
+| Model | Test accuracy | Precision | Recall | F1 | ROC-AUC | Wrong / 218 |
+|---|---|---|---|---|---|---|
+| Eye-state CNN (MobileNetV2) | **97.7%** | 97.3% | 98.2% | 0.977 | 0.999 | 5 |
+| Yawn CNN (MobileNetV2) | **74.3%** | 72.6% | 78.0% | 0.752 | 0.856 | 56 |
+| Best classical, eye: SVM (earlier run) | 95.4% | 96.3% | 94.5% | 0.954 | 0.995 | – |
+| Best classical, yawn: Extra Trees (earlier run) | 97.2% | 100% | 94.5% | 0.972 | 0.997 | – |
+
+Check the saved models any time, without retraining:
+
+```powershell
+python check_accuracy.py eye
+python check_accuracy.py yawn
+```
+
 ## How detection works
 
 | Signal | Method | Triggers |
