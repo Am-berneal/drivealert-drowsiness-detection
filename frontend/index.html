@@ -196,6 +196,8 @@ section.block{padding:42px 0;border-top:1px solid var(--line)}
 .alarm{position:fixed;inset:0;z-index:100;display:none;place-items:center;background:rgba(80,0,0,.35);box-shadow:inset 0 0 0 10px var(--red);animation:flash .8s infinite}
 .alarm.show{display:grid}
 .alarm-sign{font-size:clamp(64px,12vw,120px);line-height:1;margin-bottom:6px}
+.alarm-rest{margin:4px auto 14px;max-width:560px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.45);border-radius:12px;padding:10px 14px;font-size:15px}
+.alarm-rest a{color:var(--cyan,#22D3EE);font-weight:700;margin-left:8px}
 .alarm-risk{display:inline-block;background:var(--red);color:#fff;font-weight:700;border-radius:999px;padding:3px 12px;margin-left:8px;font-size:12px;letter-spacing:.08em}
 @keyframes flash{50%{box-shadow:inset 0 0 0 10px rgba(239,68,68,.25)}}
 .alarm-box{text-align:center;background:rgba(11,15,20,.94);border:2px solid var(--red);border-radius:16px;padding:30px 44px;margin:16px}
@@ -622,7 +624,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
           <div class="card feat">
             <div class="top"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="15" rx="3" ry="2.5"/><path d="M9 9h.01M15 9h.01"/></svg></div><span class="tag" id="featMarTag">MAR · 0.60 TRIGGER</span></div>
             <h3>Yawn Detection</h3>
-            <p>Mouth Aspect Ratio tracks how wide and how long the mouth stays open. Yawns in the last 5 minutes raise the fatigue score.</p>
+            <p>Mouth Aspect Ratio tracks how wide and how long the mouth stays open, confirmed by the Extra Trees yawn model. One yawn is a warning; two in 3 minutes give the SLEEPY alarm.</p>
             <div class="kv"><span>Counting window</span><span>5 min rolling</span></div>
           </div>
           <div class="card feat">
@@ -922,6 +924,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <option value="face_touch">Hand on face / rubbing eyes</option>
             <option value="eating">Eating / drinking</option>
             <option value="smoking">Smoking</option>
+            <option value="sleepy">Getting sleepy</option>
             <option value="alcohol">Alcohol</option>
             <option value="too_dark">Too dark – camera blind</option>
             <option value="checkin_missed">Missed night check-in</option>
@@ -1284,8 +1287,8 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
           <div class="pstage"><span class="no">STAGE 01</span><h4>Raw Frame</h4><p>Browser grabs a webcam frame, resizes to 640 px wide and encodes as JPEG (q = 0.7).</p><span class="out">→ base64 over WebSocket</span></div>
           <div class="pstage"><span class="no">STAGE 02</span><h4>MediaPipe Face Mesh</h4><p>Detects the face and 468 3D landmarks with iris refinement; one face tracked.</p><span class="out">→ 478 × (x, y) points</span></div>
           <div class="pstage"><span class="no">STAGE 03</span><h4>Geometry</h4><p>EAR from 6 points per eye, MAR from 3 mouth pairs, head pitch/yaw/roll via solvePnP.</p><span class="out">→ EAR, MAR, pose</span></div>
-          <div class="pstage"><span class="no">STAGE 04</span><h4>MobileNetV2 CNNs</h4><p>Eye crops (<span class="mono" id="pEyeSize">96</span> px) → P(closed); face crop (<span class="mono" id="pYawnSize">128</span> px) → P(yawn).</p><span class="out">→ class probabilities</span></div>
-          <div class="pstage"><span class="no">STAGE 05</span><h4>Signal Fusion</h4><p>Eyes closed if 0.6·P(closed) + 0.4·[EAR &lt; threshold] ≥ 0.5; yawn if MAR high or P(yawn) &gt; 0.85.</p><span class="out">→ per-frame states</span></div>
+          <div class="pstage"><span class="no">STAGE 04</span><h4>Trained models</h4><p>Eye crops (<span class="mono" id="pEyeSize">96</span> px) → MobileNetV2 CNN → P(closed); face crop → HOG → Extra Trees → P(yawn) (97.2% vs 79.4% for the yawn CNN, McNemar p &lt; 0.0001).</p><span class="out">→ class probabilities</span></div>
+          <div class="pstage"><span class="no">STAGE 05</span><h4>Signal Fusion</h4><p>Eyes closed if 0.6·P(closed) + 0.4·[EAR &lt; threshold] ≥ 0.5; yawn if MAR &gt; 0.6 for 1 s (or P(yawn) &gt; 0.9 with the mouth partly open).</p><span class="out">→ per-frame states</span></div>
           <div class="pstage"><span class="no">STAGE 06</span><h4>Temporal Buffer</h4><p>Timers for closure, yawn and tilt; 60 s PERCLOS window; 5 min yawn and nod counts.</p><span class="out">→ fatigue score 0–100</span></div>
           <div class="pstage"><span class="no">STAGE 07</span><h4>Alarm Engine</h4><p>Alarm on long closure, sustained head drop or high score; event logged with how it ended.</p><span class="out">→ sound + overlay + log</span></div>
         </div>
@@ -1397,6 +1400,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
   <div class="alarm-sign" id="alarmSign" aria-hidden="true">😴</div>
   <div class="alarm-level" id="alarmLevel">LEVEL 2 · ALARM</div>
   <h2 id="alarmTitle">WAKE UP!</h2><p id="alarmReason">Eyes closed too long</p>
+  <div class="alarm-rest" id="alarmRestHint" hidden></div>
   <div class="alarm-actions">
     <button class="btn primary" id="dismissAlarm">I'm okay – Dismiss</button>
     <button class="btn" id="alarmRest">☕ Find rest stop</button>
@@ -1445,9 +1449,9 @@ const STATUS_LABEL = {alert:'ALERT / ATTENTIVE', warning:'WARNING / FATIGUED', d
 const STATUS_SHORT = {alert:'ALERT', warning:'WARNING', drowsy:'DROWSY', distracted:'DISTRACTED', calibrating:'CALIBRATING', no_face:'NO FACE', too_dark:'TOO DARK', idle:'IDLE', paused:'PAUSED'};
 const STATUS_COLOR = {alert:'#22C55E', warning:'#F59E0B', drowsy:'#EF4444', distracted:'#E879F9', calibrating:'#3B82F6', no_face:'#6B7280', too_dark:'#818CF8', idle:'#6B7280', paused:'#6B7280'};
 const REASON = {eyes_closed:'Eyes closed', head_down:'Head down / nod', distracted:'Distracted / looking away', high_fatigue:'High fatigue score',
-                yawn:'Yawn detected', rising_fatigue:'Rising fatigue', kss_report:'Sleepiness self-rating', crash:'Crash / hard impact', phone_use:'Phone use', face_touch:'Hand on face / rubbing eyes', eating:'Eating / drinking', smoking:'Smoking (hand at the lips)', alcohol:'Alcohol (glass at the mouth)',
+                yawn:'Yawn detected', rising_fatigue:'Rising fatigue', kss_report:'Sleepiness self-rating', crash:'Crash / hard impact', phone_use:'Phone use', face_touch:'Hand on face / rubbing eyes', eating:'Eating / drinking', smoking:'Smoking (hand at the lips)', sleepy:'Getting sleepy', alcohol:'Alcohol (glass at the mouth)',
                 too_dark:'Too dark – camera blind', swerving:'Swerving (motion sensor)', checkin_missed:'Missed night check-in', checkin_ok:'Night check-in answered'};
-const CRIT_REASONS = ['eyes_closed','head_down','distracted','high_fatigue','crash','phone_use','face_touch','eating','smoking','alcohol','checkin_missed'];
+const CRIT_REASONS = ['eyes_closed','head_down','sleepy','distracted','high_fatigue','crash','phone_use','face_touch','eating','smoking','alcohol','checkin_missed'];
 const KSS = {1:'Extremely alert',2:'Very alert',3:'Alert',4:'Rather alert',5:'Neither alert nor sleepy',6:'Some signs of sleepiness',
              7:'Sleepy, no effort to stay awake',8:'Sleepy, some effort to stay awake',9:'Very sleepy, fighting sleep'};
 const KSS_COLOR = k => k>=8 ? '#EF4444' : k>=6 ? '#F59E0B' : k>=4 ? '#FDE047' : '#22C55E';
@@ -1546,13 +1550,16 @@ setInterval(() => $('clock').textContent = new Date().toLocaleTimeString([], {ho
 $('tHost').textContent = new URL(API).host;
 
 /* ---------- backend health + config ---------- */
-const EXPECTED_DETECTOR = '16-Nov v5';
+const EXPECTED_DETECTOR = '16-Nov v7';
 async function loadHealth(){
   try{
     const h = await (await fetch(API+'/api/health')).json();
-    const n = (h.models?.eye?1:0) + (h.models?.yawn?1:0);
-    $('modelText').textContent = h.eye_mode==='classical' && h.models?.classical ? `MODEL: ${h.models.classical.toUpperCase()} ACTIVE`
-      : h.eye_mode==='ear' ? 'MODEL: EAR ONLY' : n ? `MODEL: MobileNetV2 ×${n} ACTIVE` : 'MODEL: LANDMARKS ONLY';
+    // eye: MobileNetV2 CNN (97.7%) · yawn: the best model on the test set (Extra Trees 97.2% when trained)
+    const eyeName = h.eye_mode==='classical' && h.models?.classical ? h.models.classical
+                  : h.eye_mode==='ear' ? 'EAR only' : h.models?.eye ? 'MobileNetV2' : null;
+    const yawnName = h.models?.yawn_model || (h.models?.yawn ? 'MobileNetV2' : null);
+    $('modelText').textContent = eyeName || yawnName
+      ? `MODEL: EYE ${eyeName || 'EAR'} · YAWN ${yawnName ? yawnName.replace(' CNN','') : 'MAR'}` : 'MODEL: LANDMARKS ONLY';
     $('modelChip').className = 'chip ok';
     $('engineState').textContent = 'READY'; $('engineState').style.color = '';
     $('engineState').title = 'Detector ' + (h.detector_version || 'old version – restart the server');
@@ -1796,6 +1803,8 @@ const PHRASES = {
     alcohol:     ['Alcohol detected. Do not drink and drive. Stop the car safely.', 'High risk! Never drink and drive. Stop the car now!'],
     drinking:    'Please drink when the car is stopped.', eating_now: 'Eating while driving. Please eat at your next stop.',
     high_fatigue:['You are very tired. Please take a break soon.', 'Fatigue is critical. Stop at the next safe place.'],
+    sleepy:      ['You are getting sleepy. Take a break at the next rest stop.', 'You are very sleepy! Stop at a safe place and rest now.'],
+    rest_near: (n, d) => `Nearest rest stop: ${n}, ${d} kilometres away.`,
     early: 'You are showing early signs of fatigue.', look: 'Please look at the road.',
     test: 'DriveAlert voice alerts are on.', start: 'Monitoring started. Look straight ahead for three seconds to calibrate.',
     duty: h => `You have driven ${h} hours today, which is over your limit. Please rest before driving further.`,
@@ -1814,6 +1823,8 @@ const PHRASES = {
     alcohol:     ['शराब पीकर गाड़ी न चलाएँ। सुरक्षित जगह गाड़ी रोकिए।', 'खतरा! शराब पीकर कभी गाड़ी न चलाएँ। अभी गाड़ी रोकिए!'],
     drinking:    'कृपया गाड़ी रोककर पानी पीजिए।', eating_now: 'गाड़ी चलाते समय खाना ठीक नहीं। अगले स्टॉप पर खाइए।',
     high_fatigue:['आप बहुत थके हुए हैं। जल्दी ब्रेक लीजिए।', 'थकान बहुत ज़्यादा है। अगली सुरक्षित जगह पर रुकिए।'],
+    sleepy:      ['आपको नींद आ रही है। अगले रेस्ट स्टॉप पर ब्रेक लीजिए।', 'आपको बहुत नींद आ रही है! सुरक्षित जगह रुककर अभी आराम कीजिए।'],
+    rest_near: (n, d) => `सबसे नज़दीकी रुकने की जगह: ${n}, ${d} किलोमीटर दूर।`,
     early: 'आपमें थकान के शुरुआती लक्षण दिख रहे हैं।', look: 'कृपया सड़क की तरफ देखिए।',
     test: 'ड्राइव अलर्ट की आवाज़ चालू है।', start: 'निगरानी शुरू। तीन सेकंड सीधे सामने देखिए।',
     duty: h => `आज आप ${h} घंटे गाड़ी चला चुके हैं, जो सीमा से ज़्यादा है। कृपया आराम कीजिए।`,
@@ -1832,6 +1843,8 @@ const PHRASES = {
     alcohol:     ['ਸ਼ਰਾਬ ਪੀ ਕੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਸੁਰੱਖਿਅਤ ਥਾਂ ਗੱਡੀ ਰੋਕੋ।', 'ਖ਼ਤਰਾ! ਸ਼ਰਾਬ ਪੀ ਕੇ ਕਦੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਹੁਣੇ ਗੱਡੀ ਰੋਕੋ!'],
     drinking:    'ਕਿਰਪਾ ਕਰਕੇ ਗੱਡੀ ਰੋਕ ਕੇ ਪਾਣੀ ਪੀਓ।', eating_now: 'ਗੱਡੀ ਚਲਾਉਂਦੇ ਖਾਣਾ ਠੀਕ ਨਹੀਂ। ਅਗਲੇ ਸਟਾਪ ਤੇ ਖਾਓ।',
     high_fatigue:['ਤੁਸੀਂ ਬਹੁਤ ਥੱਕੇ ਹੋਏ ਹੋ। ਜਲਦੀ ਬ੍ਰੇਕ ਲਓ।', 'ਥਕਾਵਟ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹੈ। ਅਗਲੀ ਸੁਰੱਖਿਅਤ ਥਾਂ ਤੇ ਰੁਕੋ।'],
+    sleepy:      ['ਤੁਹਾਨੂੰ ਨੀਂਦ ਆ ਰਹੀ ਹੈ। ਅਗਲੇ ਰੈਸਟ ਸਟਾਪ ਤੇ ਬ੍ਰੇਕ ਲਓ।', 'ਤੁਹਾਨੂੰ ਬਹੁਤ ਨੀਂਦ ਆ ਰਹੀ ਹੈ! ਸੁਰੱਖਿਅਤ ਥਾਂ ਰੁਕ ਕੇ ਹੁਣੇ ਆਰਾਮ ਕਰੋ।'],
+    rest_near: (n, d) => `ਸਭ ਤੋਂ ਨੇੜੇ ਰੁਕਣ ਦੀ ਥਾਂ: ${n}, ${d} ਕਿਲੋਮੀਟਰ ਦੂਰ।`,
     early: 'ਤੁਹਾਡੇ ਵਿੱਚ ਥਕਾਵਟ ਦੇ ਸ਼ੁਰੂਆਤੀ ਲੱਛਣ ਦਿਸ ਰਹੇ ਹਨ।', look: 'ਕਿਰਪਾ ਕਰਕੇ ਸੜਕ ਵੱਲ ਦੇਖੋ।',
     test: 'ਡਰਾਈਵ ਅਲਰਟ ਦੀ ਆਵਾਜ਼ ਚਾਲੂ ਹੈ।', start: 'ਨਿਗਰਾਨੀ ਸ਼ੁਰੂ। ਤਿੰਨ ਸਕਿੰਟ ਸਿੱਧਾ ਸਾਹਮਣੇ ਦੇਖੋ।',
     duty: h => `ਅੱਜ ਤੁਸੀਂ ${h} ਘੰਟੇ ਗੱਡੀ ਚਲਾ ਚੁੱਕੇ ਹੋ, ਜੋ ਹੱਦ ਤੋਂ ਵੱਧ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਆਰਾਮ ਕਰੋ।`,
@@ -2373,6 +2386,7 @@ function render(r){
       eyes_closed:  ['😴', 'WAKE UP!'],
       head_down:    ['😴', 'WAKE UP! HEAD UP!'],
       high_fatigue: ['🛑', 'TAKE A BREAK NOW!'],
+      sleepy:       ['😪', 'YOU ARE GETTING SLEEPY – TAKE A BREAK!'],
       phone_use:    ['📵', 'PUT THE PHONE DOWN!'],
       face_touch:   ['✋', 'HAND OFF YOUR FACE!'],
       distracted:   ['👀', 'EYES ON ROAD!'],
@@ -2385,10 +2399,13 @@ function render(r){
     $('alarmTitle').textContent = AL[1];
     $('alarmLevel').innerHTML = `LEVEL ${lvl} · ${LEVEL_NAME[lvl]}` + (r.high_risk ? '<span class="alarm-risk">HIGH RISK</span>' : '')
       + (r.alarms_last_10min>1 ? ` · ${r.alarms_last_10min} ALARMS IN 10 MIN` : '');
-    $('alarmReason').textContent = (REASON[r.alarm_reason]||'Drowsiness detected') + (r.alarm_reason==='alcohol' ? ' – stop the car safely'
+    $('alarmReason').textContent = r.alarm_reason==='sleepy' ? `Signs of sleep: ${r.sleepy_why||'yawning / heavy eyes'} – stop at the next rest stop`
+      : (REASON[r.alarm_reason]||'Drowsiness detected') + (r.alarm_reason==='alcohol' ? ' – stop the car safely'
       : r.alarm_reason==='smoking' ? ' – hands on the wheel' : dis ? ' – look ahead' : ' – pull over and rest');
     $('alarm').classList.toggle('l3', lvl>=3); $('alarm').classList.toggle('distracted', dis && !r.high_risk);
     alarmActive = true;
+    if(['sleepy','high_fatigue','eyes_closed','head_down'].includes(r.alarm_reason)) showRestHint(r.alarm_reason);
+    else $('alarmRestHint').hidden = true;
     if(!alarmMuted){
       // SOUND FIRST: the alarm sound and the voice start at once, the full-screen alert follows
       setSoundLevel(lvl);
@@ -2666,9 +2683,9 @@ function classicalFacts(c, m){
     statTile('BEST CLASSICAL ML', SHORT(bestC.model), `F1 ${bestC.f1.toFixed(3)} · ${bestC.infer_ms?.toFixed(2) ?? '—'} ms/image`),
     gap==null ? statTile('MODELS COMPARED', rows.length, `${cls.length} classical · ${dl.length} deep learning`)
       : statTile('CNN vs BEST CLASSICAL', `${gap>=0?'+':''}${gap.toFixed(1)} pts F1`,
-          sig ? `McNemar p = ${sig.p_value.toFixed(3)} → ${sig.significant ? 'significant' : 'not significant'}` : 'run significance.py for the p-value',
+          sig ? `McNemar p ${sig.p_value < 0.001 ? '< 0.001' : '= ' + sig.p_value.toFixed(3)} → ${sig.significant ? 'significant' : 'not significant'}` : 'run significance.py for the p-value',
           gap>=0 ? 'var(--cyan)' : 'var(--amber)'),
-    statTile('FEWEST MISSED CLOSURES', SHORT(recall.model), `recall ${(recall.recall*100).toFixed(1)}% – catches the most closed eyes`, 'var(--green)'),
+    statTile(aboutTask==='yawn' ? 'FEWEST MISSED YAWNS' : 'FEWEST MISSED CLOSURES', SHORT(recall.model), `recall ${(recall.recall*100).toFixed(1)}% – catches the most ${aboutTask==='yawn' ? 'yawns' : 'closed eyes'}`, 'var(--green)'),
     statTile('FASTEST', SHORT(fast.model), `${fast.infer_ms.toFixed(fast.infer_ms<1?3:1)} ms per image`),
     stable ? statTile('MOST STABLE (5-FOLD CV)', SHORT(stable.model), `${(stable.cv_accuracy*100).toFixed(1)} ± ${(stable.cv_std*100).toFixed(1)}%`) 
            : statTile('≥ 90% ACCURACY', `${n90} / ${rows.length}`, 'models above 90% on the test set'),
@@ -3036,7 +3053,7 @@ function renderAbout(){
   }else{ $('balAtxt').textContent='—'; $('balBtxt').textContent='—'; }
   $('dsInput').textContent = m?.img_size ? `${m.img_size} × ${m.img_size} × 3 RGB` : (aboutTask==='eye'?'96':'128')+' × '+(aboutTask==='eye'?'96':'128')+' × 3 RGB (default)';
   if(modelInfo.eye?.img_size) $('pEyeSize').textContent = modelInfo.eye.img_size;
-  if(modelInfo.yawn?.img_size) $('pYawnSize').textContent = modelInfo.yawn.img_size;
+  if(modelInfo.yawn?.img_size && $('pYawnSize')) $('pYawnSize').textContent = modelInfo.yawn.img_size;
   $('cmTag').textContent = (aboutTask==='eye'?'EYE STATE':'YAWN')+' · TEST SET';
 
   // footprint
@@ -3100,7 +3117,8 @@ function renderRules(){
     ['Sunglasses fallback', c.eye_occlusion_check ? 'Eye signals ignored when the eye region is dark and flat' : 'Off', 'info'],
     ['Night mode', c.low_light_enhance ? `CLAHE enhancement when brightness < ${c.low_light_threshold}` : 'Off', 'info'],
     ['EAR threshold', c.calibrate ? '75% of your calibrated open-eye EAR (0.15–0.30)' : `Fixed at ${c.ear_threshold}`, 'info'],
-    ['Yawn rule', `MAR > ${c.mar_threshold} held for ${c.yawn_seconds}s`, 'warning'],
+    ['Yawn rule', `MAR > ${c.mar_threshold} held for ${c.yawn_seconds}s · yawn model: Extra Trees (if trained)`, 'warning'],
+    ['Sleepy alarm', '2 yawns in 3 min, heavy eyelids for 3 s, 3 slow blinks in 1 min, or a yawn plus a slow blink / nod', 'critical'],
     ['PERCLOS window', `${c.perclos_window}s rolling · calibration ${c.calibration_seconds}s`, 'info'],
   ];
   $('rulesBox').innerHTML = rules.map(([t,d,s]) => `<div class="kv" style="flex-direction:column;align-items:flex-start;gap:4px;padding:12px">
@@ -3279,13 +3297,15 @@ function showPlaces(me, rad, places, note){
   places = places.filter(p => p.d*1000 <= rad*1.05).sort((a,b) => a.d-b.d).slice(0,25);
   $('restCount').textContent = places.length+' FOUND · '+(rad/1000)+' KM';
   const markers = !restMap ? [] : places.map(p => L.marker([p.lat,p.lon], {icon: L.divIcon({className:'', html:`<div style="font-size:20px;filter:drop-shadow(0 1px 2px #000)">${REST_ICON[p.kind]||'📍'}</div>`, iconSize:[24,24], iconAnchor:[12,12]})})
-    .addTo(restLayer).bindPopup(`<b>${esc(p.name)}</b><br>${p.d.toFixed(1)} km away<br><a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${me.lat},${me.lon}&destination=${p.lat},${p.lon}">Navigate →</a>`));
+    .addTo(restLayer).bindPopup(`<b>${esc(p.name)}</b><br>${p.d.toFixed(1)} km away · ≈ ${etaMin(p.d)} min<br><a target="_blank" rel="noopener" href="${navUrl(me, p)}">Navigate →</a>`));
   if(!restMap) {}
   else if(places.length) restMap.fitBounds(L.latLngBounds([[me.lat,me.lon], ...places.slice(0,8).map(p=>[p.lat,p.lon])]).pad(0.2));
   else restMap.setView([me.lat, me.lon], 12);
-  $('restList').innerHTML = (note ? `<div class="notice" style="display:block;margin:0 0 10px;font-size:13px">${note}</div>` : '') + places.map((p,i) => `<div class="rest-item row-in" style="--i:${Math.min(i,10)}" data-i="${i}">
+  $('restList').innerHTML = (note ? `<div class="notice" style="display:block;margin:0 0 10px;font-size:13px">${note}</div>` : '')
+    + (places[0] ? `<a class="btn primary" style="display:block;text-align:center;margin:0 0 10px" target="_blank" rel="noopener" href="${navUrl(me, places[0])}">➜ Go to the nearest: ${esc(places[0].name)} · ${places[0].d.toFixed(1)} km · ≈ ${etaMin(places[0].d)} min</a>` : '')
+    + places.map((p,i) => `<div class="rest-item row-in" style="--i:${Math.min(i,10)}" data-i="${i}">
       <div class="ic">${REST_ICON[p.kind]||'📍'}</div><div><b>${esc(p.name)}</b><small>${esc((p.kind||'').replace('_',' '))}${p.open?' · open 24/7':''}</small></div>
-      <div class="d">${p.d.toFixed(1)} km<br><a class="c-cyan" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${me.lat},${me.lon}&destination=${p.lat},${p.lon}">Navigate →</a></div></div>`).join('');
+      <div class="d">${p.d.toFixed(1)} km<br><small class="muted">≈ ${etaMin(p.d)} min</small><br><a class="c-cyan" target="_blank" rel="noopener" href="${navUrl(me, p)}">Navigate →</a></div></div>`).join('');
   $('restList').onclick = e => { const it=e.target.closest('.rest-item'); if(!it || e.target.closest('a') || it.dataset.i===undefined) return;
     document.querySelectorAll('.rest-item').forEach(x=>x.classList.toggle('sel', x===it));
     const p=places[+it.dataset.i]; restMap?.setView([p.lat,p.lon], 16); markers[+it.dataset.i]?.openPopup(); };
@@ -3305,33 +3325,89 @@ async function findRestStopsInner(token){
     try{ me = await getPosition(); }
     catch(e){ $('restList').innerHTML = `<div class="empty">${esc(e.message)}.<br>Allow location (📍 icon in the address bar) and try again – or type a town above and press <b>Search place</b>.</div>`; return; }
   }
-  const choice = $('restRadius').value, want = 5;
-  const start = choice === 'auto' ? 1 : Math.max(0, RADII.indexOf(+choice));   // auto starts at 5 km
+  const choice = $('restRadius').value, want = 5, auto = choice === 'auto';
+  const start = auto ? 1 : Math.max(0, RADII.indexOf(+choice));   // auto starts at 5 km
   showMe(me, RADII[start]); restMap?.setView([me.lat, me.lon], 13);
+  // FAST: the next radius is already being asked (not one after another), so a wider
+  // answer is usually ready the moment the small one turns out to be too empty
+  const pending = {};
+  const ask = i => pending[i] ??= placesWithin(me, RADII[i]).catch(() => null);
+  for(let k = start; k < Math.min(start + 2, RADII.length); k++) ask(k);   // 2 at a time: kind to the free servers
   let best = null, failed = 0;
   for(let i = start; i < RADII.length; i++){
     const rad = RADII[i];
     if(token !== restToken) return;
-    $('restList').innerHTML = `<div class="empty">🔎 Searching within ${rad/1000} km…</div>`;
-    let places;
-    try{ places = await placesWithin(me, rad); }
-    catch{ failed++; if(failed >= 2) break; continue; }
+    if(!best) $('restList').innerHTML = `<div class="empty">🔎 Searching within ${rad/1000} km…</div>`;
+    if(i + 1 < RADII.length) ask(i + 1);
+    const places = await ask(i);
+    if(token !== restToken) return;
+    if(!places){ failed++; if(failed >= 3) break; continue; }
     const inRange = places.filter(p => distKm(me.lat, me.lon, p.lat, p.lon)*1000 <= rad*1.05);
-    best = {rad, places};
-    // fixed radius: stop as soon as anything is found there; auto: until we have a handful
-    if(inRange.length >= (choice === 'auto' ? want : 1) || (choice === 'auto' && inRange.length && rad >= 10000)) break;
+    if(inRange.length) best = {rad, places};
+    if(inRange.length >= (auto ? want : 1) || (auto && inRange.length && rad >= 10000)) break;
+    // a few found close by: show them at once while the wider search goes on
+    if(auto && inRange.length) showPlaces(me, rad, places, `Showing ${inRange.length} nearby – searching wider for more…`);
   }
   if(token !== restToken) return;
-  if(!best || !best.places.length){
+  if(!best){
     restFallback(me, failed ? 'OpenStreetMap servers are busy right now – use these quick links, or press Find near me again.'
                             : 'No places found on OpenStreetMap within 100 km – try these Google Maps links.');
     $('restCount').textContent = '0 FOUND'; return;
   }
-  const asked = choice === 'auto' ? null : +choice;
+  const asked = auto ? null : +choice;
   const note = asked && best.rad > asked ? `Nothing within ${asked/1000} km – showing the nearest places within ${best.rad/1000} km.`
-             : choice === 'auto' && best.rad > 5000 ? `Searched up to ${best.rad/1000} km to find the nearest places.` : '';
+             : auto && best.rad > 5000 ? `Searched up to ${best.rad/1000} km to find the nearest places.` : '';
   const shown = showPlaces(me, best.rad, best.places, note);
-  if(shown[0]) speak(`The nearest stop is ${shown[0].name}, ${shown[0].d.toFixed(1)} kilometres away.`, 'rest', 0);
+  if(shown[0]){
+    const n = shown[0];
+    restHint = {name:n.name, d:n.d, lat:n.lat, lon:n.lon, me, t:Date.now()};
+    speak(phrase('rest_near', n.name, n.d.toFixed(1)), 'rest', 0);
+  }
+}
+/* drive time on Indian roads: road distance ≈ 1.3 × straight line, ~40 km/h average */
+const etaMin = d => Math.max(1, Math.round(d * 1.3 / 40 * 60));
+const navUrl = (me, p) => `https://www.google.com/maps/dir/?api=1&origin=${me.lat},${me.lon}&destination=${p.lat},${p.lon}&travelmode=driving`;
+
+/* nearest rest stop, looked up quietly when the driver is getting sleepy, then shown inside the
+   alarm and spoken once: "Nearest rest stop: Haveli dhaba, 2.4 kilometres away." */
+let restHint = null, restHintAsk = null;
+async function nearestRestQuiet(){
+  if(restHint && Date.now() - restHint.t < 5*60000) return restHint;
+  if(restHintAsk) return restHintAsk;
+  restHintAsk = (async () => {
+    const me = restPlace || await getPosition();
+    const RS = [5000, 25000, 50000];
+    const tries = RS.slice(0, 2).map(r => placesWithin(me, r).catch(() => null));   // 5 and 25 km at once
+    for(let k = 0; k < RS.length; k++){
+      if(k === 2) tries.push(placesWithin(me, RS[2]).catch(() => null));
+      const ps = await tries[k]; if(!ps) continue;
+      const near = ps.map(p => ({...p, d: distKm(me.lat, me.lon, p.lat, p.lon)}))
+                     .filter(p => p.d*1000 <= RS[k]*1.05).sort((a,b) => a.d-b.d);
+      if(near.length) return restHint = {name:near[0].name, d:near[0].d, lat:near[0].lat, lon:near[0].lon, me, t:Date.now()};
+    }
+    return null;
+  })().catch(() => null).finally(() => { restHintAsk = null; });
+  return restHintAsk;
+}
+let restHintSpoken = 0;
+function showRestHint(reason){
+  const box = $('alarmRestHint');
+  const fill = h => {
+    if(!h){ box.hidden = true; return; }
+    box.innerHTML = `☕ Nearest rest stop: <b>${esc(h.name)}</b> · ${h.d.toFixed(1)} km · ≈ ${etaMin(h.d)} min`
+      + `<a target="_blank" rel="noopener" href="${navUrl(h.me, h)}">Navigate →</a>`;
+    box.hidden = false;
+  };
+  fill(restHint && Date.now() - restHint.t < 5*60000 ? restHint : null);
+  nearestRestQuiet().then(h => {
+    if(!h || !alarmActive) return;
+    fill(h);
+    // spoken once per sleepy episode, after the alarm line (not over it)
+    if((reason === 'sleepy' || reason === 'high_fatigue') && Date.now() - restHintSpoken > 60000){
+      restHintSpoken = Date.now();
+      setTimeout(() => speak(phrase('rest_near', h.name, h.d.toFixed(1)), 'resthint', 60000), 2500);
+    }
+  });
 }
 $('findRest').onclick = () => { restPlace = null; $('restPlace').value = ''; findRestStops(); };
 $('restRadius').onchange = () => { if($('restList').querySelector('.rest-item,.notice')) findRestStops(); };

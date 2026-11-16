@@ -42,7 +42,7 @@ FOOD_KINDS = ("food", "drink", "alcohol")
 
 class PhoneDetector:
     # a phone held at an angle often scores only 0.25-0.35; a laptop or cup needs a clearer view
-    MIN_SCORE = {"phone": 0.25, "laptop": 0.45, "drink": 0.3, "alcohol": 0.3, "food": 0.35}
+    MIN_SCORE = {"phone": 0.3, "laptop": 0.45, "drink": 0.3, "alcohol": 0.3, "food": 0.35}
 
     def __init__(self, model_dir="models", backend="auto", min_score=0.25):
         self.backend, self.error, self._model = None, None, None

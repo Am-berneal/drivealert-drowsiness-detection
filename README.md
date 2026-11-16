@@ -224,9 +224,14 @@ python export_tflite.py --data-dir <dataset>        # -> results/tflite_benchmar
 | Model | Test accuracy | Precision | Recall | F1 | ROC-AUC | Wrong / 218 |
 |---|---|---|---|---|---|---|
 | Eye-state CNN (MobileNetV2) | **97.7%** | 97.3% | 98.2% | 0.977 | 0.999 | 5 |
-| Yawn CNN (MobileNetV2) | **74.3%** | 72.6% | 78.0% | 0.752 | 0.856 | 56 |
-| Best classical, eye: SVM (earlier run) | 95.4% | 96.3% | 94.5% | 0.954 | 0.995 | – |
-| Best classical, yawn: Extra Trees (earlier run) | 97.2% | 100% | 94.5% | 0.972 | 0.997 | – |
+| Yawn CNN (MobileNetV2, 25 epochs) | **79.4%** | 88.1% | 67.9% | 0.767 | 0.889 | 45 |
+| Best classical, eye: SVM (RBF) | 95.4% | 96.3% | 94.5% | 0.954 | 0.995 | 10 |
+| Best classical, yawn: Extra Trees ⭐ used live | **97.2%** | 100% | 94.5% | 0.972 | 0.997 | 6 |
+
+CNN vs SVM on the eye task: McNemar p = 0.23 (not significant); 95% CI CNN 95.9–99.5%, SVM 92.2–97.7%.
+Extra Trees vs CNN on the yawn task: McNemar p < 0.0001 (significant); 95% CI Extra Trees 95.0–99.1%, CNN 74.3–84.9%.
+So the eye uses the CNN (+ EAR) and yawning uses Extra Trees (+ MAR).
+The yawn model was trained with `python train_model.py --task yawn --epochs 15 --fine-tune-epochs 10`.
 
 Check the saved models any time, without retraining:
 
@@ -241,7 +246,8 @@ python check_accuracy.py yawn
 |---|---|---|
 | Eye closure | EAR (6 landmarks per eye) fused with eye CNN: closed if 0.6·P(closed) + 0.4·[EAR < thr] ≥ 0.5 | ≥ 1.5 s → alarm |
 | PERCLOS | % of frames with eyes closed in the last 60 s | fatigue score |
-| Yawning | MAR > 0.6 for ≥ 1 s (or yawn CNN > 0.85) | fatigue score, warning |
+| Yawning | MAR > 0.6 for ≥ 1 s (or Extra Trees P(yawn) > 0.9 with MAR > 0.45) | 1 yawn → warning, 2 in 3 min → SLEEPY alarm |
+| Feeling sleepy | 2 yawns in 3 min, eyelids half closed for 3 s, 3 slow blinks (≥ 0.25 s) in 1 min, or a yawn plus a slow blink / nod | 😪 SLEEPY alarm + nearest rest stop |
 | Head nod | solvePnP pitch vs calibrated neutral | > 18° for 2 s → alarm |
 | Distraction | solvePnP yaw vs neutral, or face lost | > 30° / lost for 2.5 s → alarm |
 

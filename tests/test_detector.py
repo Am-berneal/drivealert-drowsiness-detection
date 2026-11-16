@@ -124,7 +124,8 @@ def test_head_pose_sign_down_is_positive():
         pts = np.zeros((478, 2))
         for i, k in enumerate(POSE_IDX):
             pts[k] = img.reshape(-1, 2)[i]
-        return DrowsinessDetector._head_pose(pts, w, h)[0]
+        fresh = DrowsinessDetector.__new__(DrowsinessDetector)    # no models needed for the maths
+        return fresh._head_pose(pts, w, h)[0]
 
     assert pitch_for(20) > 10 and pitch_for(-20) < -10     # +20 = forehead forward = looking down
 

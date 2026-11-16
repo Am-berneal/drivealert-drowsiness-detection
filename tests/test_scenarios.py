@@ -163,7 +163,7 @@ def test_looking_down_with_open_eyes_is_not_sleep(sim):
 def test_turning_away_banner_then_eyes_on_road(sim):
     s = sim()
     rs = s.run(2.0, yaw=30, ear=0.15)          # eyes look narrow from the side
-    assert first(rs, "event", "looking_away") <= 2 * DT
+    assert first(rs, "event", "looking_away") <= 0.3 + 2 * DT
     assert first(rs, "alarm_reason", "distracted") <= 1.0 + 2 * DT
     assert reasons(rs) == {"distracted"}       # never WAKE UP while turned
     rs = s.run(4, yaw=0, ear=0.27)
@@ -265,3 +265,113 @@ def test_one_event_per_frame_always(sim):
     for r in rs:
         if r["alarm"]:
             assert r["event"] == r["alarm_reason"]
+
+
+# ------------------------------------------------------------ feeling sleepy
+def test_one_yawn_is_only_a_warning(sim):
+    s = sim()
+    rs = s.run(1.5, mar=0.8) + s.run(3, mar=0.1)
+    assert "yawning" in events(rs) and not reasons(rs)
+
+
+def test_second_yawn_gives_sleepy_alarm(sim):
+    s = sim()
+    s.run(1.5, mar=0.8)
+    s.run(6, mar=0.1)
+    rs = s.run(1.5, mar=0.8)
+    t = first(rs, "alarm_reason", "sleepy")
+    assert t is not None and t <= 1.0 + 2 * DT              # the moment the 2nd yawn counts
+    assert reasons(rs) == {"sleepy"}
+    hit = [r for r in rs if r["alarm_reason"] == "sleepy"]
+    assert "yawns" in hit[0]["sleepy_why"]
+    rs = s.run(6, mar=0.1)
+    assert rs[-1]["alarm_reason"] is None                    # shown, then cleared
+
+
+def test_slow_heavy_blinks_give_sleepy_alarm(sim):
+    s = sim()
+    rs = []
+    for _ in range(3):
+        rs += s.run(0.4, ear=0.10) + s.run(2.0, ear=0.27)
+    assert "sleepy" in reasons(rs) and "eyes_closed" not in reasons(rs)
+
+
+def test_normal_blinks_are_not_sleepy(sim):
+    s = sim()
+    rs = []
+    for _ in range(8):
+        rs += s.run(0.15, ear=0.10) + s.run(1.5, ear=0.27)
+    assert not reasons(rs)
+
+
+def test_heavy_eyelids_give_sleepy_alarm(sim):
+    s = sim()
+    rs = s.run(4.0, ear=0.21)                     # half-closed, not shut
+    t = first(rs, "alarm_reason", "sleepy")
+    assert t is not None and 3.0 - DT <= t <= 3.0 + 3 * DT
+    assert reasons(rs) == {"sleepy"}
+
+
+def test_eyes_shut_while_sleepy_is_wake_up_at_once(sim):
+    s = sim()
+    s.run(3.2, ear=0.21)                           # sleepy alarm showing
+    rs = s.run(1.0, ear=0.10)
+    assert first(rs, "alarm_reason", "eyes_closed") <= 0.5 + 2 * DT
+
+
+# ------------------------------------------------------------ not a phone
+def test_bottle_also_called_phone_is_drinking_only(sim):
+    s = sim()
+    objs = [(300, 270, 340, 420, 0.7, "drink"), (302, 275, 338, 410, 0.45, "phone")]
+    rs = s.run(1.5, objects=objs)
+    assert "phone_use" not in reasons(rs) and "eating" in reasons(rs)
+
+
+def test_weak_phone_after_drinking_is_ignored(sim):
+    s = sim()
+    s.run(0.6, objects=[(300, 270, 340, 420, 0.7, "drink")])
+    rs = s.run(1.0, objects=[(300, 300, 345, 420, 0.4, "phone")])   # bottle lowered, misread
+    assert "phone_use" not in reasons(rs)
+
+
+def test_hand_over_a_yawn_is_not_a_phone(sim):
+    s = sim()
+    rs = s.run(2.0, mar=0.8, objects=[(295, 260, 345, 330, 0.45, "phone")])
+    assert "phone_use" not in reasons(rs)
+
+
+def test_weak_phone_in_the_lap_still_alarms_quickly(sim):
+    s = sim()
+    rs = s.run(1.0, objects=[(120, 380, 180, 460, 0.4, "phone")])
+    assert first(rs, "alarm_reason", "phone_use") <= 2 * DT
+
+
+# ------------------------------------------------------------ head-pose jitter
+def _jitter(s, seed=3, sd_yaw=2.5):
+    g = np.random.default_rng(seed)
+    s.det._head_pose = lambda pts, w, h: (float(g.normal(0, 1.5)), float(g.normal(0, sd_yaw)), 0.0)
+
+
+def test_head_jitter_does_not_hide_closed_eyes(sim):
+    """A webcam's head angle wobbles a few degrees on a still face; that must not count as a turn."""
+    s = sim()
+    _jitter(s)
+    s.run(2)
+    rs = s.run(1.5, ear=0.10)
+    assert first(rs, "alarm_reason", "eyes_closed") <= 0.5 + 2 * DT
+
+
+def test_head_jitter_does_not_hide_a_yawn(sim):
+    s = sim()
+    _jitter(s)
+    s.run(2)
+    rs = s.run(1.6, mar=0.8)
+    assert "yawning" in events(rs)
+
+
+def test_real_quick_glance_is_still_seen(sim):
+    s = sim()
+    rs = []
+    for _ in range(5):
+        rs += s.run(0.4, yaw=30) + s.run(0.6, yaw=0)
+    assert "distracted" in reasons(rs)

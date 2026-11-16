@@ -73,7 +73,7 @@ PLOTS = {f"{t}_{k}.png" for t in ("eye", "yawn")
                    "failures")} | {"fusion_tuning.png"}
 EYE_MODES = ("fusion", "ear", "cnn", "classical")
 
-CRITICAL = {"eyes_closed", "head_down", "distracted", "phone_use", "face_touch", "eating", "smoking", "alcohol", "high_fatigue", "crash", "checkin_missed"}
+CRITICAL = {"eyes_closed", "head_down", "sleepy", "distracted", "phone_use", "face_touch", "eating", "smoking", "alcohol", "high_fatigue", "crash", "checkin_missed"}
 NIGHT_EVENTS = {"swerving": "warning", "checkin_missed": "critical", "checkin_ok": "info"}
 SUS_FILE = DATA_DIR / "sus.json"
 WARNING_COOLDOWN = 15.0  # seconds between repeated "rising_fatigue" warnings
@@ -208,6 +208,9 @@ def rule_report(trip: dict) -> dict:
     if alarms.get("face_touch"):
         recs.append("Hands were on the face or rubbing the eyes – rubbing the eyes is an early sign of tiredness; "
                     "keep both hands on the wheel and take a break.")
+    if alarms.get("sleepy"):
+        recs.append("Signs of sleepiness were seen (repeated yawns, heavy eyelids, slow blinks): stop for a "
+                    "15-20 minute break or a short nap – the Rest Stops page shows the nearest places.")
     if alarms.get("alcohol"):
         recs.append("Alcohol was seen at the wheel: never drink and drive. This trip should be reviewed.")
     if alarms.get("smoking"):
@@ -535,6 +538,9 @@ class ConfigUpdate(BaseModel):
     smoke_detection: bool | None = None
     smoke_seconds: float | None = None
     alarm_hold_seconds: float | None = None
+    sleepy_alarm: bool | None = None
+    droopy_seconds: float | None = None
+    sleepy_yawns: int | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -568,7 +574,10 @@ def health():
         "models": {"eye": load_keras_model(EYE_MODEL) is not None,
                    "yawn": load_keras_model(YAWN_MODEL) is not None,
                    "night": (MODEL_DIR / "eye_night.keras").exists(),
-                   "classical": (load_classical_model(str(MODEL_DIR / "eye_classical.joblib")) or {}).get("name")},
+                   "classical": (load_classical_model(str(MODEL_DIR / "eye_classical.joblib")) or {}).get("name"),
+                   # yawns: the best classical model (Extra Trees, 97.2%) when trained, else the yawn CNN
+                   "yawn_model": (load_classical_model(str(MODEL_DIR / "yawn_classical.joblib")) or {}).get("name")
+                   or ("MobileNetV2 CNN" if load_keras_model(YAWN_MODEL) is not None else None)},
         "eye_mode": CONFIG.eye_mode,
         "temporal": (load_temporal(str(MODEL_DIR)) or {}).get("meta", {}).get("best_model"),
         "phone": get_phone_detector(str(MODEL_DIR)).backend if CONFIG.phone_detection else None,
