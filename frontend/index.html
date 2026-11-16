@@ -808,7 +808,7 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <div class="card"><span class="label">Eyes</span><b id="dEyes">—</b><small id="dEyesSub">sunglasses check</small></div>
             <div class="card"><span class="label">Vehicle speed</span><b id="dSpeed">—</b><small id="dSpeedSub">from GPS</small></div>
             <div class="card"><span class="label">Phone use</span><b id="dPhone">—</b><small id="dPhoneSub">EfficientDet / YOLO</small></div>
-            <div class="card"><span class="label">Hands &amp; gaze</span><b id="dHands">—</b><small id="dHandsSub">hand on face · looking around</small></div>
+            <div class="card"><span class="label">Gaze</span><b id="dHands">—</b><small id="dHandsSub">looking around</small></div>
             <div class="card"><span class="label">Night fallback</span><b id="dNight">Standby</b><small id="dNightSub">starts if the camera can't see</small></div>
             <div class="card"><span class="label">Sequence model</span><b id="dTemporal">—</b><small id="dTemporalSub">LSTM / GRU on 3 s</small></div>
           </div>
@@ -916,16 +916,10 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <option value="">All event triggers</option>
             <option value="eyes_closed">Eyes closed</option>
             <option value="head_down">Head down / nod</option>
-            <option value="high_fatigue">High fatigue score</option>
             <option value="yawn">Yawn detected</option>
-            <option value="rising_fatigue">Rising fatigue</option>
             <option value="distracted">Distracted / looking away</option>
             <option value="phone_use">Phone use</option>
-            <option value="face_touch">Hand on face / rubbing eyes</option>
-            <option value="eating">Eating / drinking</option>
-            <option value="smoking">Smoking</option>
             <option value="sleepy">Getting sleepy</option>
-            <option value="alcohol">Alcohol</option>
             <option value="too_dark">Too dark – camera blind</option>
             <option value="checkin_missed">Missed night check-in</option>
             <option value="swerving">Swerving</option>
@@ -1115,11 +1109,11 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
         <div class="toggle"><div><b>Phone &amp; device detection</b><div class="muted" style="font-size:12px">Object detector (YOLOv8n if installed, else EfficientDet-Lite2) finds a phone anywhere in view, or a laptop/tablet held near the face. Boxes are drawn on the live video</div></div><input type="checkbox" id="phone_detection"></div>
         <div class="form-row"><label for="phone_seconds">Device alarm after<span class="hint">how long a device must be seen before the alarm</span></label>
           <select id="phone_seconds"><option value="0">Immediately</option><option value="0.5">0.5 s</option><option value="1">1 s</option><option value="2">2 s</option><option value="3">3 s</option></select></div>
-        <div class="toggle"><div><b>Hand-on-face detection</b><div class="muted" style="font-size:12px">MediaPipe Hands: a hand on the face or rubbing the eyes (a sign of tiredness) raises an alarm</div></div><input type="checkbox" id="hand_detection"></div>
-        <div class="form-row"><label for="touch_seconds">Hand alarm after<span class="hint">how long a hand stays on the face</span></label>
+        <div class="toggle"><div><b>Hand check (prevents false alerts)</b><div class="muted" style="font-size:12px">MediaPipe Hands: a hand over the eyes or mouth is ignored, so rubbing your eyes is not "eyes closed" and covering a yawn is not a phone. Gives no alert of its own</div></div><input type="checkbox" id="hand_detection"></div>
+        <div class="form-row" style="display:none"><label for="touch_seconds">Hand alarm after<span class="hint">how long a hand stays on the face</span></label>
           <select id="touch_seconds"><option value="0">Immediately</option><option value="0.5">0.5 s</option><option value="1">1 s</option><option value="2">2 s</option></select></div>
-        <div class="toggle"><div><b>Eating &amp; drinking detection</b><div class="muted" style="font-size:12px">Food, a cup or a bottle at the mouth (object detector), or a hand at a chewing mouth (MediaPipe Hands + mouth movement)</div></div><input type="checkbox" id="eat_detection"></div>
-        <div class="form-row"><label for="eat_seconds">Eating alarm after<span class="hint">a quick sip is fine – longer eating/drinking raises the alarm</span></label>
+        <div class="toggle"><div><b>Cup &amp; bottle check (prevents false alerts)</b><div class="muted" style="font-size:12px">A cup or bottle at the mouth is not a yawn, and a bottle is never reported as a phone. Gives no alert of its own</div></div><input type="checkbox" id="eat_detection"></div>
+        <div class="form-row" style="display:none"><label for="eat_seconds">Eating alarm after<span class="hint">a quick sip is fine – longer eating/drinking raises the alarm</span></label>
           <select id="eat_seconds"><option value="0">Immediately</option><option value="1">1 s</option><option value="1.5">1.5 s</option><option value="3">3 s</option><option value="5">5 s</option></select></div>
         <div class="form-row"><label for="glance_alarm_count">Looking-around alarm<span class="hint">glances left/right/up within 10 s</span></label>
           <select id="glance_alarm_count"><option value="3">3 glances</option><option value="4">4 glances</option><option value="5">5 glances</option><option value="8">8 glances</option></select></div>
@@ -1451,7 +1445,7 @@ const STATUS_COLOR = {alert:'#22C55E', warning:'#F59E0B', drowsy:'#EF4444', dist
 const REASON = {eyes_closed:'Eyes closed', head_down:'Head down / nod', distracted:'Distracted / looking away', high_fatigue:'High fatigue score',
                 yawn:'Yawn detected', rising_fatigue:'Rising fatigue', kss_report:'Sleepiness self-rating', crash:'Crash / hard impact', phone_use:'Phone use', face_touch:'Hand on face / rubbing eyes', eating:'Eating / drinking', smoking:'Smoking (hand at the lips)', sleepy:'Getting sleepy', alcohol:'Alcohol (glass at the mouth)',
                 too_dark:'Too dark – camera blind', swerving:'Swerving (motion sensor)', checkin_missed:'Missed night check-in', checkin_ok:'Night check-in answered'};
-const CRIT_REASONS = ['eyes_closed','head_down','sleepy','distracted','high_fatigue','crash','phone_use','face_touch','eating','smoking','alcohol','checkin_missed'];
+const CRIT_REASONS = ['eyes_closed','head_down','sleepy','distracted','high_fatigue','crash','phone_use','face_touch','eating','checkin_missed'];
 const KSS = {1:'Extremely alert',2:'Very alert',3:'Alert',4:'Rather alert',5:'Neither alert nor sleepy',6:'Some signs of sleepiness',
              7:'Sleepy, no effort to stay awake',8:'Sleepy, some effort to stay awake',9:'Very sleepy, fighting sleep'};
 const KSS_COLOR = k => k>=8 ? '#EF4444' : k>=6 ? '#F59E0B' : k>=4 ? '#FDE047' : '#22C55E';
@@ -1550,7 +1544,7 @@ setInterval(() => $('clock').textContent = new Date().toLocaleTimeString([], {ho
 $('tHost').textContent = new URL(API).host;
 
 /* ---------- backend health + config ---------- */
-const EXPECTED_DETECTOR = '16-Nov v7';
+const EXPECTED_DETECTOR = '16-Nov v9';
 async function loadHealth(){
   try{
     const h = await (await fetch(API+'/api/health')).json();
@@ -1799,8 +1793,6 @@ const PHRASES = {
     phone_use:   ['Put the phone down and watch the road.', 'Put the phone down now!'],
     face_touch:  ['Hands on the wheel, please. Rubbing your eyes means you are getting tired.', 'Take your hand off your face and stop for a break!'],
     eating:      ['Please eat or drink when the car is stopped. Eyes on the road.', 'Stop eating now and hold the wheel with both hands!'],
-    smoking:     ['No smoking while driving. Put it out and hold the wheel.', 'High risk! Stop smoking and hold the wheel with both hands!'],
-    alcohol:     ['Alcohol detected. Do not drink and drive. Stop the car safely.', 'High risk! Never drink and drive. Stop the car now!'],
     drinking:    'Please drink when the car is stopped.', eating_now: 'Eating while driving. Please eat at your next stop.',
     high_fatigue:['You are very tired. Please take a break soon.', 'Fatigue is critical. Stop at the next safe place.'],
     sleepy:      ['You are getting sleepy. Take a break at the next rest stop.', 'You are very sleepy! Stop at a safe place and rest now.'],
@@ -1819,8 +1811,6 @@ const PHRASES = {
     phone_use:   ['फ़ोन रख दीजिए और सड़क पर ध्यान दीजिए।', 'अभी फ़ोन रखिए!'],
     face_touch:  ['हाथ स्टीयरिंग पर रखिए। आँखें मलना थकान का संकेत है।', 'चेहरे से हाथ हटाइए और ब्रेक लीजिए!'],
     eating:      ['कृपया गाड़ी रोककर खाइए या पीजिए। सड़क पर ध्यान दीजिए।', 'अभी खाना बंद कीजिए और दोनों हाथ स्टीयरिंग पर रखिए!'],
-    smoking:     ['गाड़ी चलाते समय धूम्रपान न करें। दोनों हाथ स्टीयरिंग पर रखिए।', 'खतरा! अभी धूम्रपान बंद कीजिए!'],
-    alcohol:     ['शराब पीकर गाड़ी न चलाएँ। सुरक्षित जगह गाड़ी रोकिए।', 'खतरा! शराब पीकर कभी गाड़ी न चलाएँ। अभी गाड़ी रोकिए!'],
     drinking:    'कृपया गाड़ी रोककर पानी पीजिए।', eating_now: 'गाड़ी चलाते समय खाना ठीक नहीं। अगले स्टॉप पर खाइए।',
     high_fatigue:['आप बहुत थके हुए हैं। जल्दी ब्रेक लीजिए।', 'थकान बहुत ज़्यादा है। अगली सुरक्षित जगह पर रुकिए।'],
     sleepy:      ['आपको नींद आ रही है। अगले रेस्ट स्टॉप पर ब्रेक लीजिए।', 'आपको बहुत नींद आ रही है! सुरक्षित जगह रुककर अभी आराम कीजिए।'],
@@ -1839,8 +1829,6 @@ const PHRASES = {
     phone_use:   ['ਫ਼ੋਨ ਰੱਖ ਦਿਓ ਅਤੇ ਸੜਕ ਵੱਲ ਧਿਆਨ ਦਿਓ।', 'ਹੁਣੇ ਫ਼ੋਨ ਰੱਖੋ!'],
     face_touch:  ['ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ। ਅੱਖਾਂ ਮਲਣਾ ਥਕਾਵਟ ਦੀ ਨਿਸ਼ਾਨੀ ਹੈ।', 'ਚਿਹਰੇ ਤੋਂ ਹੱਥ ਹਟਾਓ ਅਤੇ ਬ੍ਰੇਕ ਲਓ!'],
     eating:      ['ਕਿਰਪਾ ਕਰਕੇ ਗੱਡੀ ਰੋਕ ਕੇ ਖਾਓ ਜਾਂ ਪੀਓ। ਸੜਕ ਵੱਲ ਧਿਆਨ ਦਿਓ।', 'ਹੁਣੇ ਖਾਣਾ ਬੰਦ ਕਰੋ ਅਤੇ ਦੋਵੇਂ ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ!'],
-    smoking:     ['ਗੱਡੀ ਚਲਾਉਂਦੇ ਸਮੇਂ ਸਿਗਰਟ ਨਾ ਪੀਓ। ਦੋਵੇਂ ਹੱਥ ਸਟੀਅਰਿੰਗ ਤੇ ਰੱਖੋ।', 'ਖ਼ਤਰਾ! ਹੁਣੇ ਸਿਗਰਟ ਬੰਦ ਕਰੋ!'],
-    alcohol:     ['ਸ਼ਰਾਬ ਪੀ ਕੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਸੁਰੱਖਿਅਤ ਥਾਂ ਗੱਡੀ ਰੋਕੋ।', 'ਖ਼ਤਰਾ! ਸ਼ਰਾਬ ਪੀ ਕੇ ਕਦੇ ਗੱਡੀ ਨਾ ਚਲਾਓ। ਹੁਣੇ ਗੱਡੀ ਰੋਕੋ!'],
     drinking:    'ਕਿਰਪਾ ਕਰਕੇ ਗੱਡੀ ਰੋਕ ਕੇ ਪਾਣੀ ਪੀਓ।', eating_now: 'ਗੱਡੀ ਚਲਾਉਂਦੇ ਖਾਣਾ ਠੀਕ ਨਹੀਂ। ਅਗਲੇ ਸਟਾਪ ਤੇ ਖਾਓ।',
     high_fatigue:['ਤੁਸੀਂ ਬਹੁਤ ਥੱਕੇ ਹੋਏ ਹੋ। ਜਲਦੀ ਬ੍ਰੇਕ ਲਓ।', 'ਥਕਾਵਟ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹੈ। ਅਗਲੀ ਸੁਰੱਖਿਅਤ ਥਾਂ ਤੇ ਰੁਕੋ।'],
     sleepy:      ['ਤੁਹਾਨੂੰ ਨੀਂਦ ਆ ਰਹੀ ਹੈ। ਅਗਲੇ ਰੈਸਟ ਸਟਾਪ ਤੇ ਬ੍ਰੇਕ ਲਓ।', 'ਤੁਹਾਨੂੰ ਬਹੁਤ ਨੀਂਦ ਆ ਰਹੀ ਹੈ! ਸੁਰੱਖਿਅਤ ਥਾਂ ਰੁਕ ਕੇ ਹੁਣੇ ਆਰਾਮ ਕਰੋ।'],
@@ -2315,8 +2303,8 @@ function render(r){
   else if(r.eyes_visible){ $('dEyes').textContent='👁 Visible'; $('dEyes').style.color='var(--green)'; $('dEyesSub').textContent='full eye tracking'; }
   if(r.speed_kmh!=null){ $('dSpeed').textContent = Math.round(r.speed_kmh)+' km/h'; $('dSpeedSub').textContent = r.speed_gated ? 'parked – alarms paused' : 'moving – alarms active'; $('dSpeed').style.color = r.speed_gated ? 'var(--muted)' : ''; }
   else { $('dSpeed').textContent='—'; $('dSpeedSub').textContent = config.speed_gate_kmh ? 'waiting for GPS' : 'speed gating off'; }
-  drawDeviceBoxes([...(r.phone_boxes || []), ...(r.food_boxes || []), ...(r.hand_boxes || [])], r.frame_size);
-  if(r.hand_touch){ $('dHands').textContent = r.touch_kind==='eyes' ? '🥱 Rubbing eyes' : '✋ On face'; $('dHands').style.color='var(--amber)';
+  drawDeviceBoxes([...(r.phone_boxes || [])], r.frame_size);   // only phones are alerts; cups and hands are not drawn
+  if(false && r.hand_touch){ $('dHands').textContent = r.touch_kind==='eyes' ? '🥱 Rubbing eyes' : '✋ On face'; $('dHands').style.color='var(--amber)';
     $('dHandsSub').textContent = `${fmt(r.touch_seconds||0,1)} s`; }
   else if(r.glancing){ $('dHands').textContent = `👀 ${r.glances_recent} glances`; $('dHands').style.color='var(--amber)'; $('dHandsSub').textContent='looking around – last 10 s'; }
   else if(r.hand_touch!=null){ $('dHands').textContent = '✓ Hands off · eyes ahead'; $('dHands').style.color='var(--green)';
@@ -2358,8 +2346,6 @@ function render(r){
       phone_use: r.phone_kind==='laptop' ? '💻 Device in hand – eyes on the road' : '📱 Phone detected – put it down',
       face_touch: r.touch_kind==='eyes' ? '🥱 Rubbing your eyes – a sign of tiredness. Hands on the wheel.' : '✋ Hand on your face – hands on the wheel',
       eating: '🍔 Eating while driving – eat at your next stop',
-      smoking: '🚭 Smoking while driving – HIGH RISK',
-      alcohol: '🍺 Alcohol at the wheel – HIGH RISK, stop the car',
       drinking: '🥤 Drinking while driving – keep it quick, eyes on the road',
       looking_away: '👀 Keep your eyes on the road',
       looking_around: `👀 Looking around a lot (${r.glances_recent||0} glances in 10 s) – eyes on the road`,
@@ -2371,7 +2357,6 @@ function render(r){
     const VOICE = {
       phone_use: () => phrase('phone_use')[0], face_touch: () => phrase('face_touch')[0],
       eating: () => phrase('eating_now'), drinking: () => phrase('drinking'),
-      smoking: () => phrase('smoking')[0], alcohol: () => phrase('alcohol')[0],
       looking_away: () => phrase('look'), looking_around: () => phrase('look'), asleep: () => phrase('eyes_closed')[1],
       yawning: () => phrase('early'), early_fatigue: () => phrase('early'),
       rising_fatigue: () => (PREFS.voiceLang||'en-IN')==='en-IN' ? `Your fatigue is rising. Plan a break in the next ${Math.max(1,Math.round(eta||1))} minutes.` : phrase('early'),
@@ -2390,18 +2375,15 @@ function render(r){
       phone_use:    ['📵', 'PUT THE PHONE DOWN!'],
       face_touch:   ['✋', 'HAND OFF YOUR FACE!'],
       distracted:   ['👀', 'EYES ON ROAD!'],
-      smoking:      ['🚭', 'NO SMOKING WHILE DRIVING!'],
-      alcohol:      ['🍺', 'NO ALCOHOL – STOP THE CAR!'],
       eating:       r.eat_kind==='drinking' ? ['🥤', 'DRINK LATER – EYES ON ROAD!'] : ['🍔', 'EAT LATER – EYES ON ROAD!'],
     }[r.alarm_reason] || ['⚠️', 'WAKE UP!'];
-    const dis = ['distracted','phone_use','face_touch','eating','smoking','alcohol'].includes(r.alarm_reason);
+    const dis = ['distracted','phone_use','face_touch','eating'].includes(r.alarm_reason);
     $('alarmSign').textContent = AL[0];
     $('alarmTitle').textContent = AL[1];
     $('alarmLevel').innerHTML = `LEVEL ${lvl} · ${LEVEL_NAME[lvl]}` + (r.high_risk ? '<span class="alarm-risk">HIGH RISK</span>' : '')
       + (r.alarms_last_10min>1 ? ` · ${r.alarms_last_10min} ALARMS IN 10 MIN` : '');
     $('alarmReason').textContent = r.alarm_reason==='sleepy' ? `Signs of sleep: ${r.sleepy_why||'yawning / heavy eyes'} – stop at the next rest stop`
-      : (REASON[r.alarm_reason]||'Drowsiness detected') + (r.alarm_reason==='alcohol' ? ' – stop the car safely'
-      : r.alarm_reason==='smoking' ? ' – hands on the wheel' : dis ? ' – look ahead' : ' – pull over and rest');
+      : (REASON[r.alarm_reason]||'Drowsiness detected') + (dis ? ' – look ahead' : ' – pull over and rest');
     $('alarm').classList.toggle('l3', lvl>=3); $('alarm').classList.toggle('distracted', dis && !r.high_risk);
     alarmActive = true;
     if(['sleepy','high_fatigue','eyes_closed','head_down'].includes(r.alarm_reason)) showRestHint(r.alarm_reason);
@@ -2430,7 +2412,7 @@ function drawDeviceBoxes(boxes, size){
   host.innerHTML = boxes.map(([x0,y0,x1,y1,score,kind]) => {
     const left = W - (ox + x1*fw*sc), top = oy + y0*fh*sc, w = (x1-x0)*fw*sc, h = (y1-y0)*fh*sc;   // mirror x
     const col = kind==='hand' || kind==='food' || kind==='drink' ? 'var(--amber)' : 'var(--red)',
-          icon = kind==='hand' ? '✋' : kind==='laptop' ? '💻' : kind==='drink' ? '🥤' : kind==='alcohol' ? '🍺' : kind==='food' ? '🍔' : '📱';
+          icon = kind==='hand' ? '✋' : kind==='laptop' ? '💻' : kind==='drink' ? '🥤' : kind==='food' ? '🍔' : '📱';
     return `<div style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;border:3px solid ${col};border-radius:8px;box-shadow:0 0 18px rgba(239,68,68,.5)">
       <span class="mono" style="position:absolute;left:-3px;top:-24px;background:${col};color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap">${icon} ${kind==='hand' ? 'hand on face' : esc(kind)+' '+(score*100).toFixed(0)+'%'}</span></div>`;
   }).join('');
@@ -3105,11 +3087,11 @@ function renderRules(){
   const c = config; if(!c.mar_threshold) return;
   const rules = [
     ['Eye closure alarm', `Eyes closed ≥ ${c.eye_closed_seconds}s`, 'critical'],
-    ['Head drop alarm', `Pitch change > ${c.head_tilt_degrees}° for ${c.head_down_seconds}s`, 'critical'],
-    ['Fatigue alarm', `Fatigue score ≥ ${c.alarm_score}`, 'critical'],
+    ['Head drop alarm', `Chin down > ${c.head_tilt_degrees}° for ${c.head_down_seconds}s with drooping eyes`, 'critical'],
+    ['Phone alarm', `A clear phone at once; a weak detection must be seen twice; a bottle or a hand at the face is never a phone`, 'critical'],
+    ['Looking around', `${c.glance_alarm_count} glances past ${c.glance_degrees}° within 10 s`, 'critical'],
     ['Distraction alarm', `Head turned > ${c.distraction_degrees}° or face lost for ${c.distraction_seconds}s`, 'critical'],
     ['Alarm escalation', 'L1 early warning → L2 alarm → L3 critical after 3 s or 3 alarms in 10 min', 'warning'],
-    ['Fatigue forecast', `Linear trend over ${c.predict_window_min} min; L1 warning if score is predicted to reach 60 within 10 min`, 'warning'],
     ['Time-of-day risk', c.circadian_risk ? '×1.25 at 1–5 AM, ×1.1 at 2–4 PM and 6 PM–1 AM' : 'Off', 'info'],
     ['Time-on-task', c.time_on_task_min ? `+10 points per 30 min after ${c.time_on_task_min} min (max +20)` : 'Off', 'info'],
     ['Speed gating', c.speed_gate_kmh ? `No alarms below ${c.speed_gate_kmh} km/h` : 'Off', 'info'],
@@ -3118,7 +3100,8 @@ function renderRules(){
     ['Night mode', c.low_light_enhance ? `CLAHE enhancement when brightness < ${c.low_light_threshold}` : 'Off', 'info'],
     ['EAR threshold', c.calibrate ? '75% of your calibrated open-eye EAR (0.15–0.30)' : `Fixed at ${c.ear_threshold}`, 'info'],
     ['Yawn rule', `MAR > ${c.mar_threshold} held for ${c.yawn_seconds}s · yawn model: Extra Trees (if trained)`, 'warning'],
-    ['Sleepy alarm', '2 yawns in 3 min, heavy eyelids for 3 s, 3 slow blinks in 1 min, or a yawn plus a slow blink / nod', 'critical'],
+    ['Sleepy alarm', '2 yawns in 3 min, heavy eyelids for 3 s, or 3 slow blinks (0.3 s+) in 1 min', 'critical'],
+    ['Alerts given', 'Only: eyes closed, head drop, getting sleepy, yawning (warning), looking away / around, phone', 'info'],
     ['PERCLOS window', `${c.perclos_window}s rolling · calibration ${c.calibration_seconds}s`, 'info'],
   ];
   $('rulesBox').innerHTML = rules.map(([t,d,s]) => `<div class="kv" style="flex-direction:column;align-items:flex-start;gap:4px;padding:12px">

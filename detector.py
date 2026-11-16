@@ -57,13 +57,16 @@ MODEL_POINTS = np.array(
     dtype=np.float64,
 )
 
-DETECTOR_VERSION = "16-Nov v7"   # shown at server start and on the Live page
+DETECTOR_VERSION = "16-Nov v9"   # shown at server start and on the Live page
 print(f"[detector] DriveAlert detector {DETECTOR_VERSION}")
 
 # lower = more important. A more important alarm may replace the one on screen at once;
 # a less important one waits until the current alarm has been shown for alarm_hold_seconds.
-ALARM_PRIORITY = {"eyes_closed": 0, "head_down": 1, "phone_use": 2, "alcohol": 3, "smoking": 4,
-                  "sleepy": 5, "eating": 6, "face_touch": 7, "distracted": 8, "high_fatigue": 9}
+# Only FOUR kinds of alert are given: drowsiness (eyes closed, head drop, getting sleepy), yawning
+# (a warning), looking away / looking here and there, and phone use. Hands, cups and bottles are
+# still detected, but only to PREVENT wrong alerts (a hand rubbing the eyes is not "eyes closed",
+# a bottle at the mouth is not a yawn and not a phone) – they never give an alert of their own.
+ALARM_PRIORITY = {"eyes_closed": 0, "head_down": 1, "phone_use": 2, "sleepy": 3, "distracted": 4}
 
 KSS_LABELS = {
     1: "Extremely alert", 2: "Very alert", 3: "Alert", 4: "Rather alert",
@@ -104,24 +107,28 @@ class DetectorConfig:
     predict_window_min: float = 10.0   # window for the fatigue trend prediction
     use_temporal: bool = True          # LSTM/GRU sequence model (train_temporal.py), if trained
     phone_detection: bool = True       # phone-in-hand detection (phone_detector.py)
-    glance_degrees: float = 18.0       # a head turn past this (left/right/up) counts as a glance away
+    glance_degrees: float = 22.0       # a head turn past this (left/right/up) counts as a glance away
     glance_count: int = 3              # this many glances away within glance_window -> warning
     glance_window: float = 10.0        # seconds
     glance_alarm_count: int = 5        # this many glances within glance_window -> full distraction alarm
     hand_detection: bool = True        # hand on face / rubbing eyes (MediaPipe Hands)
-    touch_seconds: float = 1.0         # hand on the face this long -> alarm (0 = immediately)
+    touch_seconds: float = 1.5         # hand on the face this long -> alarm (at least 1 s: hands pass the face all the time)
     phone_seconds: float = 0.5         # phone / device visible this long -> alarm (0 = immediately)
     eat_detection: bool = True         # eating / drinking: food or a cup/bottle at the mouth, hand at a moving mouth
     eat_seconds: float = 1.0           # eating this long -> alarm (0 = immediately)
     drink_seconds: float = 0.0         # drinking (cup / bottle at the mouth) -> alarm at once
-    smoke_detection: bool = True       # smoking: two fingers held together at the lips (no cigarette model in COCO)
-    smoke_seconds: float = 0.8         # smoking gesture held this long -> HIGH-RISK alarm
+    smoke_detection: bool = False      # REMOVED (no cigarette data – a hand gesture gave false alarms); kept so old settings load
+    smoke_seconds: float = 0.8         # (unused)
     alarm_hold_seconds: float = 2.0    # an alarm stays on screen at least this long, so it is read fully
+    # removed alerts (off; the detection behind them only blocks false alerts now)
+    eat_alert: bool = False            # eating / drinking alert
+    touch_alert: bool = False          # hand-on-face alert
+    fatigue_alert: bool = False        # fatigue-score alert and "early / rising fatigue" banners
     # --- feeling sleepy (before the eyes stay shut): yawns, slow blinks, heavy eyelids, nodding ---
     sleepy_alarm: bool = True
     sleepy_window: float = 180.0       # yawns / nods counted over this many seconds
     sleepy_yawns: int = 2              # this many yawns in the window -> SLEEPY alarm
-    long_blink_seconds: float = 0.25   # eyes shut this long (but shorter than an eyes-closed alarm) = slow blink
+    long_blink_seconds: float = 0.3    # eyes shut this long (but shorter than an eyes-closed alarm) = slow blink
     sleepy_long_blinks: int = 3        # this many slow blinks within 60 s -> SLEEPY alarm
     droopy_seconds: float = 3.0        # eyelids half closed (heavy eyes) this long -> SLEEPY alarm
     sleepy_show_seconds: float = 4.0   # the SLEEPY alarm is shown this long
@@ -375,11 +382,7 @@ class DrowsinessDetector:
         self.eat_last = None
         self.early_since = None              # score has stayed high since (early fatigue warning)
         self.busy_t = None                   # last time a phone / hand / food was in use
-        self.smoke_gesture_t = None          # last frame with two fingers at the lips
-        self.smoke_hold_since = None
-        self.smoke_last = None
-        self.smoke_present = False
-        self.smoke_since = None
+        self.smoke_present = False           # smoking detection removed (kept False for old callers)
         self.long_blinks = deque()           # slow blinks (sleepy eyes)
         self.droopy_since = None             # eyelids half closed since
         self.droopy_t = None
@@ -472,15 +475,12 @@ class DrowsinessDetector:
                 fx0, fy0, fx1, fy1 = fb
                 fw, fh = fx1 - fx0, fy1 - fy0
                 tips = pts[[4, 8, 12, 16, 20]]
-                inside = ((tips[:, 0] > fx0 - 0.1 * fw) & (tips[:, 0] < fx1 + 0.1 * fw) &
-                          (tips[:, 1] > fy0 - 0.1 * fh) & (tips[:, 1] < fy1 + 0.1 * fh))
-                # smoking: index and middle fingertips held together at the lips (a cigarette between them)
-                mcx, mcy, mr = (fx0 + fx1) / 2, fy0 + 0.78 * fh, 0.24 * fw
-                at_lips = [np.hypot(pts[i][0] - mcx, pts[i][1] - mcy) < mr for i in (8, 12)]
-                together = np.hypot(*(pts[8] - pts[12])) < 0.2 * fw
-                if any(at_lips) and together:
-                    self.smoke_gesture_t = t
-                if inside.any():
+                # ON the face, not near it: the fingertips must be inside the face itself (a small
+                # margin only), and at least 2 of them – one fingertip passing the face edge, a hand
+                # raised in front of the camera or adjusting glasses is not "hand on face"
+                inside = ((tips[:, 0] > fx0 + 0.05 * fw) & (tips[:, 0] < fx1 - 0.05 * fw) &
+                          (tips[:, 1] > fy0) & (tips[:, 1] < fy1 + 0.05 * fh))
+                if inside.sum() >= 2:
                     eye_band = (tips[:, 1] > fy0 + 0.2 * fh) & (tips[:, 1] < fy0 + 0.55 * fh) & inside
                     mouth_band = (tips[:, 1] > fy0 + 0.6 * fh) & (tips[:, 1] < fy1 + 0.15 * fh) & inside
                     mouth = mouth or bool(mouth_band.any() and not eye_band.any())
@@ -498,8 +498,7 @@ class DrowsinessDetector:
     BUSY_SETTLE = 2.5   # seconds after a phone / hand / eating event before eyes and head count again
 
     def _mark_busy(self, t):
-        if (getattr(self, "phone_present", False) or self.touch_present or self.eat_present
-                or getattr(self, "smoke_present", False)):
+        if getattr(self, "phone_present", False) or self.touch_present or self.eat_present:
             self.busy_t = t
             self.glances.clear()          # head moves while using the phone are not "looking around"
             self.need_open = True         # after the phone: WAKE UP only once the eyes were seen open again
@@ -515,7 +514,6 @@ class DrowsinessDetector:
         Drinking = a cup / bottle, or the hand at the mouth with the head tipped back."""
         if not self.cfg.eat_detection:
             self.eat_present, self.eat_since = False, None
-            self._update_smoking(t, False, False)
             return
         if mar is not None:
             self.mar_hist.append((t, mar))
@@ -528,10 +526,9 @@ class DrowsinessDetector:
         now = food_seen or (hand_mouth and (chewing or (mar is not None and mar > 0.3)))
         if now:
             self.eat_last = t
-            drinking = (food_seen and self.food_kind in ("drink", "alcohol")) or (
+            drinking = (food_seen and self.food_kind == "drink") or (
                 hand_mouth and pitch_delta is not None and pitch_delta < -12)
-            self.eat_kind = ("alcohol" if food_seen and self.food_kind == "alcohol"
-                             else "drinking" if drinking else "eating")
+            self.eat_kind = "drinking" if drinking else "eating"
         present = getattr(self, "eat_last", None) is not None and t - self.eat_last <= 0.6
         if present and not self.eat_present:
             self.eat_events.append(t)
@@ -539,31 +536,6 @@ class DrowsinessDetector:
         self.eat_since = (self.eat_since or t) if present else None
         if present:
             self.touch_present, self.touch_since = False, None   # one event: eating, not "hand on face"
-        self._update_smoking(t, chewing, food_seen)
-
-    def _update_smoking(self, t, chewing, food_seen):
-        """Smoking: the cigarette-holding gesture (two fingers together at the lips) held for
-        smoke_seconds while nothing is eaten or drunk. A webcam cannot see a thin cigarette
-        reliably and COCO has no cigarette class, so the hand gesture is the sign used."""
-        if not self.cfg.smoke_detection:
-            self.smoke_present, self.smoke_since = False, None
-            return
-        gesture = (self.smoke_gesture_t is not None and t - self.smoke_gesture_t <= 0.4
-                   and not food_seen and not chewing)
-        if gesture:
-            # while the gesture is being confirmed, show nothing else for this hand (no
-            # "hand on face" banner that then turns into "smoking")
-            self.touch_present, self.touch_since = False, None
-            self.smoke_hold_since = self.smoke_hold_since or t
-            if t - self.smoke_hold_since >= self.cfg.smoke_seconds:
-                self.smoke_last = t
-        else:
-            self.smoke_hold_since = None
-        self.smoke_present = self.smoke_last is not None and t - self.smoke_last <= 1.5
-        self.smoke_since = (self.smoke_since or t) if self.smoke_present else None
-        if self.smoke_present:                    # one event: smoking, not "hand on face" / eating
-            self.touch_present, self.touch_since = False, None
-            self.eat_present, self.eat_since = False, None
 
     def close(self):
         if getattr(self, "_det_pool", None) is not None:
@@ -767,7 +739,7 @@ class DrowsinessDetector:
             if self.food_boxes:
                 self.food_last = t
                 self.food_kind = max(self.food_boxes, key=lambda b: b[4])[5]
-            drinks = [b for b in found if len(b) > 5 and b[5] in ("drink", "alcohol", "food")]
+            drinks = [b for b in found if len(b) > 5 and b[5] in ("drink", "food")]
             self.phone_boxes = [b for b in found if counts_as_distraction(b, face_box, w, h)
                                 and self._real_phone(b, face_box, drinks, t)]
             if self.phone_boxes:
@@ -893,7 +865,7 @@ class DrowsinessDetector:
         # phone and lifting the head – eyes look down and the head is tipped. That is NOT sleep and
         # NOT looking away, so no WAKE UP / EYES ON ROAD straight after the phone alarm.
         on_phone = (bool(getattr(self, "phone_present", False)) or self.touch_present   # hand over the eyes too
-                    or self.eat_present or self.smoke_present or self._busy_recent(t))  # eating, smoking, settling
+                    or self.eat_present or self._busy_recent(t))  # eating / drinking, settling
         # Head turned to the side (looking around): the eyes look narrow from the side and the
         # face may leave the picture – that is distraction, never sleep. Do not count it as fatigue.
         # Also a FAST head movement (looking here and there) counts, even before the angle is large,
@@ -1071,10 +1043,7 @@ class DrowsinessDetector:
             why = "heavy eyelids"
         elif lb >= c.sleepy_long_blinks:
             why = f"{lb} slow blinks in 1 min"
-        elif yawns and (lb or nods):
-            why = "yawning and " + ("slow blinks" if lb else "nodding")
-        elif lb >= 2 and nods:
-            why = "slow blinks and nodding"
+        # (weaker mixes – one yawn plus one slow blink or one nod – were removed: they gave false alarms)
         if why is None:
             return
         signs = yawns[-1:] + nods[-1:] + list(self.long_blinks)[-1:]
@@ -1174,26 +1143,21 @@ class DrowsinessDetector:
         if not calibrating:
             if (face or slumped) and closed_dur >= self.cfg.eye_closed_seconds:
                 reason = "eyes_closed"
-            elif face and tilt_dur >= self.cfg.head_down_seconds and (
-                    getattr(self, "_eyes_low", True) or tilt_dur >= max(2.5, self.cfg.head_down_seconds)):
-                reason = "head_down"
+            elif face and tilt_dur >= self.cfg.head_down_seconds and getattr(self, "_eyes_low", True):
+                reason = "head_down"          # chin down WITH drooping eyes; looking down with open eyes is not sleep
             elif getattr(self, "phone_present", False) and phone_dur >= self.cfg.phone_seconds:
                 reason = "phone_use"
-            elif self.eat_present and self.eat_kind == "alcohol":
-                reason = "alcohol"                                  # HIGH RISK: at once
-            elif self.smoke_present:
-                reason = "smoking"                                  # HIGH RISK (gesture already held)
             elif face and self._sleepy_active(t):
                 reason = "sleepy"                                   # getting sleepy: take a break
-            elif self.eat_present and t - self.eat_since >= (
+            elif self.cfg.eat_alert and self.eat_present and t - self.eat_since >= (
                     self.cfg.drink_seconds if self.eat_kind == "drinking" else self.cfg.eat_seconds):
                 reason = "eating"
-            elif self.touch_present and t - self.touch_since >= self.cfg.touch_seconds + (
+            elif self.cfg.touch_alert and self.touch_present and self.touch_last - self.touch_since >= max(self.cfg.touch_seconds, 1.0) + (
                     1.0 if self.mouth_touch else 0.0):          # hand at the mouth: wait to see if it is eating
                 reason = "face_touch"
             elif distracted or (face and glance_recent and len(self.glances) >= self.cfg.glance_alarm_count):
                 reason = "distracted"
-            elif face and trend_score >= self.cfg.alarm_score:   # real fatigue, not a single eye closure
+            elif self.cfg.fatigue_alert and face and trend_score >= self.cfg.alarm_score:
                 reason = "high_fatigue"
         # speed gating: no alarms while the vehicle is stopped (GPS speed below the gate)
         gated = bool(self.cfg.speed_gate_kmh and self.speed_kmh is not None
@@ -1232,7 +1196,9 @@ class DrowsinessDetector:
             self.early_since = getattr(self, "early_since", None) or t
         elif trend_score < 30 or not face:
             self.early_since = None
-        early = self.early_since is not None and t - self.early_since >= 3.0
+        early = self.cfg.fatigue_alert and self.early_since is not None and t - self.early_since >= 3.0
+        if not self.cfg.fatigue_alert:
+            eta = None
 
         # Escalating alarm level (0-3), loosely following the EU DDAW idea of an
         # early warning (KSS 7) and a mandatory warning (KSS 8+):
@@ -1241,17 +1207,17 @@ class DrowsinessDetector:
         #   3 = critical alarm  : alarm lasting >= 3 s, or 3+ alarms in 10 minutes
         alarm_seconds = t - self.alarm_since if alarm else 0.0
         sleeping = reason in ("eyes_closed", "head_down")
-        high_risk = reason in ("alcohol", "smoking")
+        high_risk = False
         if alarm and (alarm_seconds >= 3.0 or len(self.alarm_times) >= 3 or slumped or high_risk
                       or (sleeping and alarm_seconds >= 1.0)):
             level = 3                      # asleep: escalate to the siren fast
         elif alarm:
             level = 2
-        elif not calibrating and not gated and (getattr(self, "phone_present", False) or blind or self.eat_present
-                                                or self.smoke_present):
+        elif not calibrating and not gated and (getattr(self, "phone_present", False) or blind
+                                                or (self.cfg.eat_alert and self.eat_present)):
             level = 1
         elif face and not calibrating and not gated and (early or yawning or (away and away_dur >= 0.3) or glancing
-                                                        or self.touch_present
+                                                        or (self.cfg.touch_alert and self.touch_present)
                                                         or (eta is not None and eta <= 10)):
             level = 1
         else:
@@ -1270,13 +1236,9 @@ class DrowsinessDetector:
             event = reason                                  # see ALARM_PRIORITY
         elif phone_now:
             event = "phone_use"
-        elif self.eat_present and self.eat_kind == "alcohol":
-            event = "alcohol"
-        elif self.smoke_present:
-            event = "smoking"
-        elif self.eat_present:
+        elif self.cfg.eat_alert and self.eat_present:
             event = self.eat_kind                           # "eating" or "drinking"
-        elif self.touch_present:
+        elif self.cfg.touch_alert and self.touch_present:
             event = "face_touch"
         elif face and away and away_dur >= 0.3:            # a head tipping for a moment (yawn, mirror) is not looking away
             event = "looking_away"
@@ -1293,9 +1255,9 @@ class DrowsinessDetector:
 
         if calibrating:
             status = "calibrating"
-        elif reason in ("distracted", "phone_use", "face_touch", "eating", "smoking", "alcohol") or event in (
+        elif reason in ("distracted", "phone_use", "face_touch", "eating") or event in (
                 "phone_use", "face_touch", "looking_away", "looking_around", "eating", "drinking",
-                "smoking", "alcohol"):
+                ):
             status = "distracted"
         elif alarm or (face and score >= 60):
             status = "drowsy"
@@ -1381,8 +1343,7 @@ class DrowsinessDetector:
             "eating": bool(self.eat_present),
             "eat_kind": (getattr(self, "_kinds", (None,))[0] if reason == "eating"
                          else self.eat_kind if self.eat_present else None),
-            "smoking": bool(self.smoke_present),
-            "high_risk": reason in ("alcohol", "smoking"),
+            "high_risk": False,
             "eat_seconds": round(t - self.eat_since, 2) if self.eat_present and self.eat_since else 0.0,
             "food_boxes": [[round(b[0] / self._frame_wh[0], 4), round(b[1] / self._frame_wh[1], 4),
                             round(b[2] / self._frame_wh[0], 4), round(b[3] / self._frame_wh[1], 4),
@@ -1439,8 +1400,6 @@ class DrowsinessDetector:
                    "HAND OFF YOUR FACE!" if r["alarm_reason"] == "face_touch" else
                    ("DRINK LATER - EYES ON ROAD!" if r.get("eat_kind") == "drinking" else "EAT LATER - EYES ON ROAD!")
                    if r["alarm_reason"] == "eating" else
-                   "NO SMOKING WHILE DRIVING!" if r["alarm_reason"] == "smoking" else
-                   "NO ALCOHOL - STOP THE CAR!" if r["alarm_reason"] == "alcohol" else
                    "EYES ON ROAD!" if r["alarm_reason"] == "distracted" else "WAKE UP!")
             cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 0, 255), 8)
             cv2.putText(frame, msg, (w // 2 - 160, h - 40), cv2.FONT_HERSHEY_DUPLEX,

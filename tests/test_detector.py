@@ -102,10 +102,11 @@ def test_hand_on_face_alarm():
     det.process(grey, timestamp=30.0)
     # simulate the hand detector having seen fingertips on the eyes
     det.cfg.hand_detection = False            # skip the real MediaPipe Hands on a blank frame
-    det.touch_present, det.touch_since, det.touch_last, det.touch_kind = True, 30.0, 30.6, "eyes"
+    det.touch_present, det.touch_since, det.touch_last, det.touch_kind = True, 30.0, 31.1, "eyes"
     det._update_hands = lambda *a, **k: None
-    r = det.process(grey, timestamp=30.6)
-    assert r["hand_touch"] and r["touch_kind"] == "eyes" and r["alarm_reason"] == "face_touch"
+    r = det.process(grey, timestamp=31.1)        # hand held on the eyes for 1.1 s
+    # the hand is still SEEN (it stops the eyes being read as closed) but hand-on-face is no longer an alert
+    assert r["hand_touch"] and r["touch_kind"] == "eyes" and r["alarm_reason"] is None and r["event"] is None
     det.close()
 
 
@@ -188,7 +189,7 @@ def test_eating_and_drinking_detection():
 
 
 def test_early_fatigue_needs_a_steady_high_score():
-    det = make_detector()
+    det = make_detector(fatigue_alert=True)      # fatigue banners are off by default now; logic kept
     det.calibrated, det.start = True, 0.0
     r = det._result(10.0, face=True, closed_dur=0.2)        # a blink: no score, no warning
     assert r["fatigue_score"] < 35 and r["event"] is None

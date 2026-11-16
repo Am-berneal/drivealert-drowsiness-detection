@@ -41,7 +41,6 @@ def hand(tips: dict, base=(330, 420)):
     return types.SimpleNamespace(landmark=pts)
 
 
-SMOKING_HAND = hand({8: (MOUTH[0] - 4, MOUTH[1]), 12: (MOUTH[0] + 6, MOUTH[1] + 3)})
 CHEEK_HAND = hand({8: (270, 230), 12: (300, 200), 4: (262, 250)})
 
 
@@ -193,13 +192,12 @@ def test_phone_at_once_and_no_wake_up_after(sim):
     assert after[-1]["alarm_reason"] is None
 
 
-def test_drinking_from_a_bottle(sim):
+def test_drinking_from_a_bottle_gives_no_alert(sim):
+    """Drinking is not an alert any more – and the open mouth is not a yawn, the bottle not a phone."""
     s = sim()
     bottle = [(300, 270, 340, 420, 0.7, "drink")]
-    rs = s.run(1.5, objects=bottle)
-    assert first(rs, "alarm_reason", "eating") <= 0.3 + 2 * DT
-    assert all(r["eat_kind"] == "drinking" for r in rs if r["alarm_reason"] == "eating")
-    assert reasons(rs) == {"eating"}
+    rs = s.run(2.0, objects=bottle, mar=0.8)
+    assert not reasons(rs) and not events(rs)
 
 
 def test_bottle_in_the_cup_holder_is_ignored(sim):
@@ -208,45 +206,25 @@ def test_bottle_in_the_cup_holder_is_ignored(sim):
     assert not reasons(rs) and not events(rs)
 
 
-def test_alcohol_is_high_risk_at_once(sim):
+def test_hand_on_cheek_gives_no_alert(sim):
     s = sim()
-    rs = s.run(1.0, objects=[(300, 260, 345, 380, 0.6, "alcohol")])
-    assert first(rs, "alarm_reason", "alcohol") <= DT
-    hit = [r for r in rs if r["alarm_reason"] == "alcohol"]
-    assert all(r["high_risk"] and r["alarm_level"] == 3 for r in hit)
-    assert reasons(rs) == {"alcohol"}
-
-
-def test_smoking_gesture_is_high_risk(sim):
-    s = sim()
-    rs = s.run(2.0, hands=[SMOKING_HAND])
-    t = first(rs, "alarm_reason", "smoking")
-    assert t is not None and t <= 0.8 + 3 * DT
-    assert reasons(rs) == {"smoking"} and "face_touch" not in events(rs) - {"smoking"}
-    assert all(r["alarm_level"] == 3 for r in rs if r["alarm_reason"] == "smoking")
-    rs = s.run(5, hands=[])
-    assert rs[-1]["alarm_reason"] is None
-
-
-def test_hand_on_cheek_is_hand_on_face_not_smoking(sim):
-    s = sim()
-    rs = s.run(1.5, hands=[CHEEK_HAND])
-    assert first(rs, "alarm_reason", "face_touch") <= 0.5 + 3 * DT
-    assert reasons(rs) == {"face_touch"}
+    rs = s.run(2.0, hands=[CHEEK_HAND])
+    assert not reasons(rs) and not events(rs)
 
 
 def test_alert_is_shown_fully_before_it_goes(sim):
     s = sim()
-    rs = s.run(0.7, hands=[CHEEK_HAND]) + s.run(3, hands=[])
-    on = [r["t"] for r in rs if r["alarm_reason"] == "face_touch"]
+    rs = s.run(0.5, objects=[(100, 100, 160, 200, 0.8, "phone")]) + s.run(3, objects=[])
+    on = [r["t"] for r in rs if r["alarm_reason"] == "phone_use"]
     assert on and on[-1] - on[0] >= 2.0 - 2 * DT          # stays at least 2 s
-    assert reasons(rs) == {"face_touch"}
+    assert reasons(rs) == {"phone_use"}
 
 
 def test_more_important_alert_replaces_at_once(sim):
     s = sim()
-    s.run(0.7, hands=[CHEEK_HAND])                          # hand-on-face alarm showing
-    rs = s.run(0.5, hands=[], objects=[(100, 100, 160, 200, 0.8, "phone")])
+    rs = s.run(2.0, yaw=30)                                 # EYES ON ROAD showing
+    assert "distracted" in reasons(rs)
+    rs = s.run(0.5, yaw=0, objects=[(100, 100, 160, 200, 0.8, "phone")])
     assert first(rs, "alarm_reason", "phone_use") <= DT     # the phone does not wait
 
 
@@ -259,7 +237,7 @@ def test_too_dark_is_not_looking_away(sim):
 def test_one_event_per_frame_always(sim):
     """A busy mixture: every frame carries exactly one event and its alarm matches it."""
     s = sim()
-    rs = (s.run(0.6, hands=[CHEEK_HAND]) + s.run(0.6, objects=[(100, 100, 160, 200, 0.8, "phone")])
+    rs = (s.run(0.6, hands=[CHEEK_HAND]) + s.run(0.6, hands=[], objects=[(100, 100, 160, 200, 0.8, "phone")])
           + s.run(0.6, objects=[(300, 270, 340, 420, 0.7, "drink")], hands=[]) + s.run(1, yaw=30, objects=[])
           + s.run(1, yaw=0, ear=0.1))
     for r in rs:
@@ -320,11 +298,11 @@ def test_eyes_shut_while_sleepy_is_wake_up_at_once(sim):
 
 
 # ------------------------------------------------------------ not a phone
-def test_bottle_also_called_phone_is_drinking_only(sim):
+def test_bottle_also_called_phone_is_no_alert(sim):
     s = sim()
     objs = [(300, 270, 340, 420, 0.7, "drink"), (302, 275, 338, 410, 0.45, "phone")]
     rs = s.run(1.5, objects=objs)
-    assert "phone_use" not in reasons(rs) and "eating" in reasons(rs)
+    assert not reasons(rs)
 
 
 def test_weak_phone_after_drinking_is_ignored(sim):
@@ -375,3 +353,63 @@ def test_real_quick_glance_is_still_seen(sim):
     for _ in range(5):
         rs += s.run(0.4, yaw=30) + s.run(0.6, yaw=0)
     assert "distracted" in reasons(rs)
+
+
+# ------------------------------------------------------------ smoking / alcohol removed, stricter hand
+def test_glass_at_the_mouth_is_no_alert(sim):
+    s = sim()
+    rs = s.run(1.0, objects=[(300, 260, 345, 380, 0.6, "drink")])
+    assert not reasons(rs) and not any(r["high_risk"] for r in rs)
+
+
+def test_fingers_at_the_lips_is_not_smoking_any_more(sim):
+    s = sim()
+    lips = hand({8: (MOUTH[0] - 4, MOUTH[1]), 12: (MOUTH[0] + 6, MOUTH[1] + 3)})
+    rs = s.run(2.0, hands=[lips])
+    assert "smoking" not in reasons(rs) and "smoking" not in events(rs)
+
+
+def test_one_fingertip_near_the_face_is_not_a_touch(sim):
+    s = sim()
+    edge = hand({8: (250, 240)})                      # just outside the face edge
+    rs = s.run(2.0, hands=[edge])
+    assert "face_touch" not in reasons(rs) and "face_touch" not in events(rs)
+
+
+def test_short_touch_is_not_an_alarm(sim):
+    s = sim()
+    rs = s.run(0.8, hands=[CHEEK_HAND]) + s.run(2, hands=[])   # scratching the cheek
+    assert "face_touch" not in reasons(rs)
+
+
+def test_weak_remote_is_not_a_phone(sim):
+    import phone_detector as P
+    assert P.REMOTE_MIN >= 0.5
+
+
+
+
+# ------------------------------------------------------------ only four kinds of alert
+ALLOWED = {"eyes_closed", "head_down", "sleepy", "distracted", "phone_use"}
+ALLOWED_EVENTS = ALLOWED | {"yawning", "looking_away", "looking_around", "too_dark", "asleep"}
+
+
+def test_only_the_four_alert_kinds_ever_appear(sim):
+    s = sim()
+    rs = (s.run(1.0, hands=[CHEEK_HAND]) + s.run(1.0, hands=[], objects=[(300, 270, 340, 420, 0.7, "drink")], mar=0.8)
+          + s.run(1.0, objects=[(300, 260, 345, 380, 0.6, "food")], mar=0.1) + s.run(1.0, objects=[], ear=0.10)
+          + s.run(2.0, ear=0.27, yaw=30) + s.run(2.0, yaw=0, objects=[(100, 100, 160, 200, 0.8, "phone")])
+          + s.run(2.0, objects=[], mar=0.8) + s.run(4, mar=0.1))
+    assert reasons(rs) <= ALLOWED and events(rs) <= ALLOWED_EVENTS
+
+
+def test_looking_down_with_open_eyes_for_long_is_not_head_drop(sim):
+    s = sim()
+    rs = s.run(4.0, pitch=25, ear=0.27)            # reading the dashboard: eyes open
+    assert "head_down" not in reasons(rs) and "eyes_closed" not in reasons(rs)
+
+
+def test_one_yawn_and_one_slow_blink_is_not_sleepy(sim):
+    s = sim()
+    rs = s.run(1.5, mar=0.8) + s.run(2, mar=0.1) + s.run(0.4, ear=0.10) + s.run(3, ear=0.27)
+    assert "sleepy" not in reasons(rs)

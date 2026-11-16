@@ -73,7 +73,7 @@ PLOTS = {f"{t}_{k}.png" for t in ("eye", "yawn")
                    "failures")} | {"fusion_tuning.png"}
 EYE_MODES = ("fusion", "ear", "cnn", "classical")
 
-CRITICAL = {"eyes_closed", "head_down", "sleepy", "distracted", "phone_use", "face_touch", "eating", "smoking", "alcohol", "high_fatigue", "crash", "checkin_missed"}
+CRITICAL = {"eyes_closed", "head_down", "sleepy", "distracted", "phone_use", "face_touch", "eating", "high_fatigue", "crash", "checkin_missed"}
 NIGHT_EVENTS = {"swerving": "warning", "checkin_missed": "critical", "checkin_ok": "info"}
 SUS_FILE = DATA_DIR / "sus.json"
 WARNING_COOLDOWN = 15.0  # seconds between repeated "rising_fatigue" warnings
@@ -211,10 +211,6 @@ def rule_report(trip: dict) -> dict:
     if alarms.get("sleepy"):
         recs.append("Signs of sleepiness were seen (repeated yawns, heavy eyelids, slow blinks): stop for a "
                     "15-20 minute break or a short nap – the Rest Stops page shows the nearest places.")
-    if alarms.get("alcohol"):
-        recs.append("Alcohol was seen at the wheel: never drink and drive. This trip should be reviewed.")
-    if alarms.get("smoking"):
-        recs.append("Smoking was detected while driving: it takes a hand off the wheel and the eyes off the road.")
     if alarms.get("eating"):
         recs.append("Eating or drinking was detected while driving: have snacks and water during breaks, "
                     "or use a bottle with a straw while stopped.")
