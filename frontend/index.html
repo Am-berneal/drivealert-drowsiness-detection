@@ -13,8 +13,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <!-- Leaflet + OpenStreetMap for the rest-stop finder -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- map library bundled with the app (works even when the CDN is blocked or slow); CDN only as a backup -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<script src="vendor/leaflet/leaflet.js"></script>
+<script>window.L || document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>');</script>
 <style>
 :root{
   --bg:#0B0F14; --bg2:#0E141B; --card:#131A23; --card2:#18212C; --line:#1F2A37; --line2:#2A3646;
@@ -416,6 +418,9 @@ tbody tr td{transition:background .2s}
 .state-strip .card{padding:12px}
 .state-strip b{display:block;font-family:var(--mono);font-size:17px;font-weight:500;margin-top:4px}
 .state-strip small{font-size:11px;color:var(--muted)}
+.watch4 .card{transition:border-color .2s,background .2s}
+.watch4 .card.on{border-color:var(--red);background:rgba(239,68,68,.08)}
+.watch4 .card.warn{border-color:var(--amber);background:rgba(245,158,11,.07)}
 .ov.night{bottom:46px;left:12px;color:#C4B5FD;border-color:#7C3AED;display:none}
 .early-banner{position:absolute;bottom:52px;left:16px;right:16px;z-index:6;text-align:center;
   background:rgba(40,28,6,.82);border:1px solid var(--amber);color:#FCD34D;padding:9px 16px;border-radius:10px;font-weight:600;font-size:13.5px;
@@ -798,7 +803,14 @@ a.rest-item{color:inherit;text-decoration:none;margin-bottom:8px}
             <button class="btn" id="recalBtn" disabled>◎ Recalibrate Baseline</button>
             <button class="btn warn" id="simBtn">⚠ Simulate Drowsiness</button>
           </div>
-          <div class="state-strip">
+          <!-- ONLY the four things DriveAlert alerts on -->
+          <div class="state-strip watch4">
+            <div class="card" id="wDrowsyCard"><span class="label">😴 Drowsiness</span><b id="wDrowsy">—</b><small id="wDrowsySub">eyes closed 0.5 s = WAKE UP</small></div>
+            <div class="card" id="wYawnCard"><span class="label">🥱 Yawning</span><b id="wYawn">—</b><small id="wYawnSub">2 yawns in 3 min = sleepy alert</small></div>
+            <div class="card" id="wLookCard"><span class="label">👀 Looking around</span><b id="wLook">—</b><small id="wLookSub">5 glances in 10 s = alert</small></div>
+            <div class="card" id="wPhoneCard"><span class="label">📵 Phone</span><b id="wPhone">—</b><small id="wPhoneSub">phone seen 0.5 s = alert</small></div>
+          </div>
+          <div class="state-strip" style="display:none">  <!-- old cards: hidden, kept so nothing else breaks -->
             <div class="card"><span class="label">Drive time</span><b id="dDrive">00:00:00</b><small>since monitoring started</small></div>
             <div class="card"><span class="label">Next break</span><b id="dBreak" class="c-cyan">—</b><small id="dBreakSub">every 45 min</small></div>
             <div class="card"><span class="label">Est. sleepiness (KSS)</span><b id="dKss">—</b><small id="dKssSub">self-rated: —</small></div>
@@ -2314,6 +2326,7 @@ function render(r){
     $('dPhone').style.color = r.phone_detected ? 'var(--red)' : 'var(--green)';
     $('dPhoneSub').textContent = r.phone_backend || 'object detector';
   }else { $('dPhone').textContent = 'Off'; $('dPhone').style.color = 'var(--muted)'; $('dPhoneSub').textContent = 'enable in Settings'; }
+  updateWatch4(r);
   if(r.temporal_prob!=null){
     $('dTemporal').textContent = `P(drowsy) ${(r.temporal_prob*100).toFixed(0)}%`;
     $('dTemporal').style.color = r.temporal_prob>=0.7 ? 'var(--red)' : r.temporal_prob>=0.4 ? 'var(--amber)' : 'var(--green)';
@@ -3186,13 +3199,42 @@ $('clearTrips').onclick = async () => {
   try{ await fetch(API+'/api/trips', {method:'DELETE'}); curTrip=null; $('reportView').style.display='none'; loadTrips(); }catch{ toast('Backend offline'); }
 };
 
+/* ---------- the four live cards: drowsiness · yawning · looking around · phone ---------- */
+function updateWatch4(r){
+  const set = (id, txt, sub, state) => { $(id).textContent = txt; if(sub != null) $(id+'Sub').textContent = sub;
+    $(id+'Card').classList.toggle('on', state==='on'); $(id+'Card').classList.toggle('warn', state==='warn');
+    $(id).style.color = state==='on' ? 'var(--red)' : state==='warn' ? 'var(--amber)' : 'var(--green)'; };
+  if(r.calibrating){ ['wDrowsy','wYawn','wLook','wPhone'].forEach(id => set(id, 'Calibrating…', null, '')); return; }
+  if(!r.face_detected){ set('wDrowsy', 'No face', 'keep your face in the frame', 'warn'); }
+  else if(['eyes_closed','head_down'].includes(r.alarm_reason)) set('wDrowsy', r.alarm_reason==='head_down' ? 'Head dropping!' : 'Eyes closed!', `closed ${fmt(r.eyes_closed_seconds||0,1)} s`, 'on');
+  else if(r.alarm_reason==='sleepy') set('wDrowsy', 'Getting sleepy', r.sleepy_why || 'take a break', 'on');
+  else if(r.eyes_closed) set('wDrowsy', `Closing ${fmt(r.eyes_closed_seconds||0,1)} s`, 'alarm at 0.5 s', 'warn');
+  else set('wDrowsy', 'Awake', r.slow_blinks ? `eyes open · ${r.slow_blinks} slow blink(s) in 1 min (3 = sleepy)` : 'eyes open · closed 0.5 s = WAKE UP', '');
+  const yc = r.yawn_count || 0;
+  if(r.yawning) set('wYawn', 'Yawning now', `${yc} yawn(s) in 5 min`, 'warn');
+  else set('wYawn', yc ? `${yc} yawn(s)` : 'No yawns', 'last 5 min · 2 in 3 min = sleepy alert', yc >= 2 ? 'warn' : '');
+  const g = r.glances_recent || 0;
+  if(r.alarm_reason==='distracted') set('wLook', 'Eyes off road!', `${g} glance(s) in 10 s`, 'on');
+  else if(r.looking_away) set('wLook', `Turned ${fmt(Math.abs(r.head_yaw||0),0)}°`, `alert after 1.5 s · ${fmt(r.looking_away_seconds||0,1)} s`, 'warn');
+  else set('wLook', g ? `${g} glance(s)` : 'Eyes ahead', 'in the last 10 s · 5 = alert', g >= 3 ? 'warn' : '');
+  if(r.alarm_reason==='phone_use') set('wPhone', 'Phone in use!', `${fmt(r.phone_seconds||0,1)} s`, 'on');
+  else if(r.phone_detected) set('wPhone', 'Phone seen', `${fmt(r.phone_seconds||0,1)} s · alert at 0.5 s`, 'warn');
+  else set('wPhone', 'No phone', r.phone_backend ? 'phone check on' : 'phone check off – see Settings', '');
+}
+
 /* ---------- rest stop finder (OpenStreetMap / Overpass API) ---------- */
 let restMap=null, restLayer=null, meMarker=null;
 const REST_ICON = {fuel:'⛽', cafe:'☕', restaurant:'🍽️', fast_food:'🍔', rest_area:'🅿️', services:'🛣️', hotel:'🏨', motel:'🏨'};
 function initRestMap(){
   if(restMap || !window.L){ if(!window.L) $('restList').innerHTML='<div class="empty">Map library could not load (no internet?).</div>'; setTimeout(()=>restMap?.invalidateSize(),200); return; }
   restMap = L.map('restMap', {zoomControl:true}).setView([22.6, 79.0], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap contributors'}).addTo(restMap);
+  // OpenStreetMap tiles; if they do not load on this network (blocked / refused), switch to CARTO's copy of the same map
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap contributors'});
+  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:20, attribution:'© OpenStreetMap contributors © CARTO'});
+  let tileOk = 0, tileBad = 0;
+  osm.on('tileload', () => tileOk++);
+  osm.on('tileerror', () => { if(++tileBad >= 3 && !tileOk && restMap.hasLayer(osm)){ restMap.removeLayer(osm); carto.addTo(restMap); } });
+  osm.addTo(restMap);
   restLayer = L.layerGroup().addTo(restMap);
   setTimeout(()=>restMap.invalidateSize(),200);
 }
@@ -3252,7 +3294,7 @@ function restQuery(me, rad){
 async function placesWithin(me, rad){
   const key = `da_rest2_${me.lat.toFixed(2)}_${me.lon.toFixed(2)}_${rad}`;
   try{ const c = JSON.parse(localStorage.getItem(key)||'null'); if(c && Date.now()-c.t < 6*3600000) return c.data; }catch{}
-  const data = await overpass(restQuery(me, rad), rad > 10000 ? 14000 : 9000);
+  const data = await overpass(restQuery(me, rad), rad > 10000 ? 10000 : 7000);
   const places = data.elements.map(el => {
     const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon, tg = el.tags||{};
     const kind = tg.amenity || tg.highway || tg.tourism;
@@ -3262,10 +3304,30 @@ async function placesWithin(me, rad){
   try{ localStorage.setItem(key, JSON.stringify({t:Date.now(), data:places})); }catch{}
   return places;
 }
-function restFallback(me, msg){
+function googleLinks(me){
   const g = q => `https://www.google.com/maps/search/${encodeURIComponent(q)}/@${me.lat},${me.lon},13z`;
-  $('restList').innerHTML = `<div class="empty">${esc(msg)}</div>` + [['⛽','Petrol pumps','petrol pump'],['🍽️','Dhabas & restaurants','dhaba'],['☕','Cafés','cafe'],['🅿️','Rest areas','rest area'],['🏨','Hotels','hotel']]
+  return [['⛽','Petrol pumps','petrol pump'],['🍽️','Dhabas & restaurants','dhaba'],['☕','Cafés','cafe'],['🅿️','Rest areas','rest area'],['🏨','Hotels','hotel']]
     .map(([ic,label,q]) => `<a class="rest-item" target="_blank" rel="noopener" href="${g(q)}"><div class="ic">${ic}</div><div><b>${label}</b><small>open in Google Maps near you</small></div><div class="d c-cyan">Open →</div></a>`).join('');
+}
+function restFallback(me, msg){
+  $('restList').innerHTML = `<div class="empty">${esc(msg)}</div>` + googleLinks(me);
+}
+/* backup source when every Overpass server is busy: OpenStreetMap's own search (Nominatim),
+   one category per second (its usage rule), limited to a box around the driver */
+async function nominatimNear(me, km){
+  const d = km / 111, box = [me.lon - d / Math.cos(me.lat * Math.PI / 180), me.lat + d, me.lon + d / Math.cos(me.lat * Math.PI / 180), me.lat - d].map(v => v.toFixed(4)).join(',');
+  const out = [];
+  for(const [q, kind] of [['fuel','fuel'], ['cafe','cafe'], ['restaurant','restaurant'], ['hotel','hotel']]){
+    try{
+      const ctrl = new AbortController(), tm = setTimeout(() => ctrl.abort(), 5000);
+      const a = await (await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&bounded=1&viewbox=${box}&q=${q}`, {signal: ctrl.signal})).json();
+      clearTimeout(tm);
+      a.forEach(r => out.push({lat:+r.lat, lon:+r.lon, kind: r.type || kind, name: r.name || (r.display_name||'').split(',')[0] || kind}));
+    }catch{}
+    await new Promise(r => setTimeout(r, 1100));
+  }
+  const seen = new Set();          // the same place can come back for two words: keep it once
+  return out.filter(p => { const k = p.lat.toFixed(4) + ',' + p.lon.toFixed(4); if(seen.has(k)) return false; seen.add(k); return true; });
 }
 function showMe(me, rad){
   if(!restMap) return;
@@ -3280,7 +3342,7 @@ function showPlaces(me, rad, places, note){
   places = places.filter(p => p.d*1000 <= rad*1.05).sort((a,b) => a.d-b.d).slice(0,25);
   $('restCount').textContent = places.length+' FOUND · '+(rad/1000)+' KM';
   const markers = !restMap ? [] : places.map(p => L.marker([p.lat,p.lon], {icon: L.divIcon({className:'', html:`<div style="font-size:20px;filter:drop-shadow(0 1px 2px #000)">${REST_ICON[p.kind]||'📍'}</div>`, iconSize:[24,24], iconAnchor:[12,12]})})
-    .addTo(restLayer).bindPopup(`<b>${esc(p.name)}</b><br>${p.d.toFixed(1)} km away · ≈ ${etaMin(p.d)} min<br><a target="_blank" rel="noopener" href="${navUrl(me, p)}">Navigate →</a>`));
+    .addTo(restLayer).bindPopup(`<b>${esc(p.name)}</b><br>${p.d.toFixed(1)} km away · ≈ ${etaMin(p.d)} min<br><a target="_blank" rel="noopener" href="${navUrl(me, p)}">Navigate →</a> · <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}">Google Maps</a>`));
   if(!restMap) {}
   else if(places.length) restMap.fitBounds(L.latLngBounds([[me.lat,me.lon], ...places.slice(0,8).map(p=>[p.lat,p.lon])]).pad(0.2));
   else restMap.setView([me.lat, me.lon], 12);
@@ -3289,9 +3351,13 @@ function showPlaces(me, rad, places, note){
     + places.map((p,i) => `<div class="rest-item row-in" style="--i:${Math.min(i,10)}" data-i="${i}">
       <div class="ic">${REST_ICON[p.kind]||'📍'}</div><div><b>${esc(p.name)}</b><small>${esc((p.kind||'').replace('_',' '))}${p.open?' · open 24/7':''}</small></div>
       <div class="d">${p.d.toFixed(1)} km<br><small class="muted">≈ ${etaMin(p.d)} min</small><br><a class="c-cyan" target="_blank" rel="noopener" href="${navUrl(me, p)}">Navigate →</a></div></div>`).join('');
+  $('restSrc').textContent = 'TAP A PLACE TO SEE IT ON THE MAP';
   $('restList').onclick = e => { const it=e.target.closest('.rest-item'); if(!it || e.target.closest('a') || it.dataset.i===undefined) return;
     document.querySelectorAll('.rest-item').forEach(x=>x.classList.toggle('sel', x===it));
-    const p=places[+it.dataset.i]; restMap?.setView([p.lat,p.lon], 16); markers[+it.dataset.i]?.openPopup(); };
+    const p=places[+it.dataset.i];
+    if(!restMap){ window.open(`https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`, '_blank', 'noopener'); return; }
+    restMap.setView([p.lat,p.lon], 16); markers[+it.dataset.i]?.openPopup();
+    if(innerWidth < 900) $('restMap').scrollIntoView({behavior:'smooth', block:'center'}); };
   return places;
 }
 let restBusy = false, restToken = 0, restPlace = null;
@@ -3320,11 +3386,11 @@ async function findRestStopsInner(token){
   for(let i = start; i < RADII.length; i++){
     const rad = RADII[i];
     if(token !== restToken) return;
-    if(!best) $('restList').innerHTML = `<div class="empty">🔎 Searching within ${rad/1000} km…</div>`;
+    if(!best) $('restList').innerHTML = `<div class="empty">🔎 Searching within ${rad/1000} km… (the quick links below work right away)</div>` + googleLinks(me);
     if(i + 1 < RADII.length) ask(i + 1);
     const places = await ask(i);
     if(token !== restToken) return;
-    if(!places){ failed++; if(failed >= 3) break; continue; }
+    if(!places){ failed++; if(failed >= 2) break; continue; }
     const inRange = places.filter(p => distKm(me.lat, me.lon, p.lat, p.lon)*1000 <= rad*1.05);
     if(inRange.length) best = {rad, places};
     if(inRange.length >= (auto ? want : 1) || (auto && inRange.length && rad >= 10000)) break;
@@ -3332,6 +3398,15 @@ async function findRestStopsInner(token){
     if(auto && inRange.length) showPlaces(me, rad, places, `Showing ${inRange.length} nearby – searching wider for more…`);
   }
   if(token !== restToken) return;
+  if(!best && failed){
+    // every Overpass server is busy: try OpenStreetMap search instead (about 5 s)
+    $('restList').innerHTML = `<div class="empty">🔎 Map servers are busy – trying OpenStreetMap search…</div>` + googleLinks(me);
+    for(const km of [10, 30]){
+      const ps = await nominatimNear(me, km);
+      if(token !== restToken) return;
+      if(ps.length){ best = {rad: km * 1000, places: ps}; break; }
+    }
+  }
   if(!best){
     restFallback(me, failed ? 'OpenStreetMap servers are busy right now – use these quick links, or press Find near me again.'
                             : 'No places found on OpenStreetMap within 100 km – try these Google Maps links.');

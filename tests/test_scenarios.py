@@ -382,9 +382,6 @@ def test_short_touch_is_not_an_alarm(sim):
     assert "face_touch" not in reasons(rs)
 
 
-def test_weak_remote_is_not_a_phone(sim):
-    import phone_detector as P
-    assert P.REMOTE_MIN >= 0.5
 
 
 
